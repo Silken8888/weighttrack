@@ -29,7 +29,7 @@ class Config:
     # photo) -- far more reliable than text search when we have one.
     OFF_PRODUCT_URL = "https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
     OFF_USER_AGENT = "WeighTrack/1.0 (personal health tracker; contact: weighttrack-app@example.com)"
-    OFF_RETRY_COUNT = 1
+    OFF_RETRY_COUNT = 2
     OFF_RETRY_DELAY_SECONDS = 1.5
     OFF_REQUEST_TIMEOUT_SECONDS = 8
 
