@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Food Library &middot; WeighTrack{% endblock %}
+
+{% block content %}
+
+  <section class="stats-row">
+    <div class="stat-card">
+      <p class="stat-card__label">Weight</p>
+      <p class="stat-card__value stat-card__value--muted">Coming Soon</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-card__label">Streak</p>
+      <p class="stat-card__value stat-card__value--muted">Coming Soon</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-card__label">Calories Today</p>
+      <p class="stat-card__value stat-card__value--coral">
+        {{ calories_today if calories_today is not none else 0 }} <span>Cal</span>
+      </p>
+    </div>
+  </section>
+
+  <section class="hero">
+    <h1>Your Food Library</h1>
+    <p>Look a product up once, confirm the numbers, and it's yours forever after &mdash; no repeat lookups, no re-typing macros. Search below to add something new.</p>
+  </section>
+
+  <section class="search-panel">
+    <p class="search-panel__eyebrow">Search Open Food Facts</p>
+    <form id="search-form" class="search-form">
+      <input type="text" id="search-input" name="query" placeholder="e.g. cheerios, nutella, greek yogurt&hellip;" autocomplete="off">
+      <button type="submit" class="btn">Search</button>
+    </form>
+
+    <div class="search-photo">
+      <span class="search-photo__divider">Or</span>
+      <label class="btn btn--ghost search-photo__label" for="search-photo-input">
+        Upload a Photo Instead
+      </label>
+      <input type="file" id="search-photo-input" accept="image/jpeg,image/png,image/webp" hidden>
+      <span class="search-photo__hint">A clear shot of the barcode works best; a readable label photo works too.</span>
+    </div>
+
+    <p class="search-status" id="search-status"></p>
+    <ul class="result-list" id="search-results"></ul>
+  </section>
+
+  <section>
+    <div class="library-header">
+      <h2>Today's Timeline</h2>
+      <span class="library-count">{{ log_entries|length }} Entr{{ 'y' if log_entries|length == 1 else 'ies' }}</span>
+    </div>
+
+    {% if log_entries %}
+      <ol class="timeline" id="timeline-list">
+        {% for entry in log_entries %}
+          <li class="timeline__item timeline__item--{{ entry.meal_type }}" data-log-id="{{ entry.id }}">
+            <span class="timeline__dot"></span>
+            <div class="timeline__card">
+              <div>
+                <div class="timeline__meta">
+                  <span class="timeline__meal">{{ entry.meal_type|capitalize }}</span>
+                  <span class="timeline__time">{{ entry.logged_at.strftime('%-I:%M %p') }}</span>
+                </div>
+                <p class="timeline__name">{{ entry.food_item.product_name if entry.food_item else 'Unknown Food' }}</p>
+                {% if entry.food_item and entry.food_item.serving_description %}
+                  <p class="timeline__serving">
+                    {{ entry.servings }}&times; {{ entry.food_item.serving_description }}
+                  </p>
+                {% endif %}
+              </div>
+              <div class="timeline__right">
+                <span class="timeline__cals">{{ entry.calories|round|int if entry.calories is not none else '--' }} Cal</span>
+                <button type="button" class="timeline__remove" data-delete-log-id="{{ entry.id }}" aria-label="Remove entry">&times;</button>
+              </div>
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <div class="empty-state">
+        Nothing logged yet today. Tap Log on a food below to add it to your timeline.
+      </div>
+    {% endif %}
+  </section>
+
+  <section>
+    <div class="library-header">
+      <h2>On the Shelf</h2>
+      <span class="library-count">{{ items|length }} Item{{ '' if items|length == 1 else 's' }}</span>
+    </div>
+
+    {% if items %}
+      <ul class="food-grid">
+        {% for item in items %}
+          <li class="food-card">
+            <div class="food-card__photo-wrap">
+              {% if item.photo_url %}
+                <img class="food-card__photo" src="{{ item.photo_url }}" alt="{{ item.product_name }}" loading="lazy">
+              {% else %}
+                <div class="food-card__photo-placeholder">No Photo</div>
+              {% endif %}
+            </div>
+            <span class="food-card__tag">{{ item.nickname }}</span>
+            <div class="food-card__body">
+              <p class="food-card__name">{{ item.product_name }}</p>
+              {% if item.brand %}<p class="food-card__brand">{{ item.brand }}</p>{% endif %}
+              <p class="food-card__cals">
+                {{ item.calories|round|int if item.calories is not none else '--' }} Cal
+                {%- if item.serving_description %} &middot; {{ item.serving_description }}{% endif %}
+              </p>
+            </div>
+            <div class="food-card__actions">
+              <button
+                type="button"
+                class="btn btn--ghost"
+                data-open-nutrition
+                data-name="{{ item.product_name }}"
+                data-serving="{{ item.serving_description or '1 serving' }}"
+                data-calories="{{ item.calories if item.calories is not none else '' }}"
+                data-protein="{{ item.protein_g if item.protein_g is not none else '' }}"
+                data-carbs="{{ item.carbs_g if item.carbs_g is not none else '' }}"
+                data-fat="{{ item.fat_g if item.fat_g is not none else '' }}"
+                data-fiber="{{ item.fiber_g if item.fiber_g is not none else '' }}"
+                data-sugar="{{ item.sugar_g if item.sugar_g is not none else '' }}"
+                data-sodium="{{ item.sodium_mg if item.sodium_mg is not none else '' }}"
+              >Facts</button>
+              <button type="button" class="btn btn--teal" data-open-log data-log-item-id="{{ item.id }}" data-log-item-name="{{ item.nickname }}">Log</button>
+              <button type="button" class="btn btn--danger" data-delete-id="{{ item.id }}" data-delete-name="{{ item.nickname }}">Remove</button>
+            </div>
+            <form class="log-form" data-log-form-for="{{ item.id }}">
+              <label>
+                Meal
+                <select name="meal_type">
+                  <option value="breakfast">Breakfast</option>
+                  <option value="lunch">Lunch</option>
+                  <option value="dinner">Dinner</option>
+                  <option value="snack" selected>Snack</option>
+                </select>
+              </label>
+              <label>
+                Servings
+                <input type="number" name="servings" value="1" min="0.25" step="0.25">
+              </label>
+              <button type="submit" class="btn btn--teal">Add to Timeline</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state">
+        The shelf is empty. Search for a food above and confirm it to start your library.
+      </div>
+    {% endif %}
+  </section>
+
+  <div class="modal-backdrop" id="nutrition-modal">
+    <div class="nutrition-label" role="dialog" aria-modal="true" aria-labelledby="nl-name">
+      <button type="button" class="nutrition-label__close" id="nutrition-modal-close" aria-label="Close">&times;</button>
+      <h3>Nutrition Facts</h3>
+      <p class="nutrition-label__product" id="nl-name">&mdash;</p>
+      <div class="nutrition-label__serving">
+        <span>Serving Size</span>
+        <span id="nl-serving">&mdash;</span>
+      </div>
+      <div class="nutrition-label__cals-row">
+        <span>Calories</span>
+        <span id="nl-cals">&mdash;</span>
+      </div>
+      <div class="nutrition-label__dv-header">% Daily Value*</div>
+      <div class="nutrition-label__row">
+        <span><strong>Total Fat</strong> <span id="nl-fat-val">&mdash;</span></span>
+        <span id="nl-fat-dv"></span>
+      </div>
+      <div class="nutrition-label__row">
+        <span><strong>Sodium</strong> <span id="nl-sodium-val">&mdash;</span></span>
+        <span id="nl-sodium-dv"></span>
+      </div>
+      <div class="nutrition-label__row">
+        <span><strong>Total Carbohydrate</strong> <span id="nl-carbs-val">&mdash;</span></span>
+        <span id="nl-carbs-dv"></span>
+      </div>
+      <div class="nutrition-label__row nutrition-label__row--indent">
+        <span>Dietary Fiber <span id="nl-fiber-val">&mdash;</span></span>
+        <span id="nl-fiber-dv"></span>
+      </div>
+      <div class="nutrition-label__row nutrition-label__row--indent">
+        <span>Total Sugars <span id="nl-sugar-val">&mdash;</span></span>
+        <span></span>
+      </div>
+      <div class="nutrition-label__row">
+        <span><strong>Protein</strong> <span id="nl-protein-val">&mdash;</span></span>
+        <span></span>
+      </div>
+      <p class="nutrition-label__footnote">*% Daily Value shows how much a nutrient in a serving contributes to a daily diet, using standard FDA reference values. Figures are estimates from Open Food Facts, confirmed once and reused from your library.</p>
+    </div>
+  </div>
+
+{% endblock %}

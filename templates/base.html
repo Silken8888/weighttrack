@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}WeighTrack{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="wrap site-header__row">
+      <div>
+        <p class="wordmark">Weigh<span>Track</span></p>
+        <p class="tagline">Your Food, Your Wins</p>
+      </div>
+      <div class="stamp" aria-label="Current date, time and location">
+        <div class="stamp__row"><span class="stamp__label">DATE</span> <span id="stamp-date">--</span></div>
+        <div class="stamp__row"><span class="stamp__label">TIME</span> <span id="stamp-time">--</span></div>
+        <div class="stamp__row"><span class="stamp__label">NEAR</span> <span id="stamp-location">locating&hellip;</span></div>
+      </div>
+    </div>
+    <nav class="site-nav wrap" aria-label="Primary">
+      <ul>
+        <li><a href="{{ url_for('food_library') }}" {% if active_nav == 'food' %}aria-current="page"{% endif %}>Food Library</a></li>
+        <li><span class="soon" title="Coming soon">Weigh-In Log</span></li>
+        <li><span class="soon" title="Coming soon">Dashboard</span></li>
+        <li><span class="soon" title="Coming soon">Vacation Mode</span></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">WeighTrack &middot; personal build &middot; nutrition data via Open Food Facts</div>
+  </footer>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
