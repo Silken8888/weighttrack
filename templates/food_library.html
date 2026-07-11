@@ -45,6 +45,23 @@
     <ul class="result-list" id="search-results"></ul>
   </section>
 
+  <section class="meal-photo-panel">
+    <p class="search-panel__eyebrow">Log a Meal Photo</p>
+    <form id="meal-photo-form" class="meal-photo-form">
+      <input type="file" id="meal-photo-input" accept="image/jpeg,image/png,image/webp" required>
+      <select id="meal-photo-meal-type">
+        <option value="breakfast">Breakfast</option>
+        <option value="lunch">Lunch</option>
+        <option value="dinner">Dinner</option>
+        <option value="snack" selected>Snack</option>
+      </select>
+      <input type="number" id="meal-photo-servings" value="1" min="0.25" step="0.25" aria-label="Servings" title="Servings">
+      <input type="text" id="meal-photo-description" placeholder="Optional: what is this?">
+      <button type="submit" class="btn">Log It</button>
+    </form>
+    <p class="search-status" id="meal-photo-status">For home-cooked or unpackaged food -- Claude gives a rough calorie estimate you can adjust afterward.</p>
+  </section>
+
   <section>
     <div class="library-header">
       <h2>Today's Timeline</h2>
@@ -57,20 +74,37 @@
           <li class="timeline__item timeline__item--{{ entry.meal_type }}" data-log-id="{{ entry.id }}">
             <span class="timeline__dot"></span>
             <div class="timeline__card">
-              <div>
-                <div class="timeline__meta">
-                  <span class="timeline__meal">{{ entry.meal_type|capitalize }}</span>
-                  <span class="timeline__time">{{ entry.logged_at.strftime('%-I:%M %p') }}</span>
-                </div>
-                <p class="timeline__name">{{ entry.food_item.product_name if entry.food_item else 'Unknown Food' }}</p>
-                {% if entry.food_item and entry.food_item.serving_description %}
-                  <p class="timeline__serving">
-                    {{ entry.servings }}&times; {{ entry.food_item.serving_description }}
-                  </p>
+              <div class="timeline__main">
+                {% if entry.display_photo_url %}
+                  <img class="timeline__thumb" src="{{ entry.display_photo_url }}" alt="" loading="lazy">
                 {% endif %}
+                <div>
+                  <div class="timeline__meta">
+                    <span class="timeline__meal">{{ entry.meal_type|capitalize }}</span>
+                    <span class="timeline__time">{{ entry.logged_at.strftime('%-I:%M %p') }}</span>
+                    {% if entry.is_photo_logged and entry.ai_calories is not none and entry.manual_calories is none %}
+                      <span class="timeline__ai-badge">AI Estimate</span>
+                    {% endif %}
+                  </div>
+                  <p class="timeline__name">{{ entry.display_name }}</p>
+                  {% if entry.food_item and entry.food_item.serving_description %}
+                    <p class="timeline__serving">
+                      {{ entry.servings }}&times; {{ entry.food_item.serving_description }}
+                    </p>
+                  {% endif %}
+                </div>
               </div>
               <div class="timeline__right">
                 <span class="timeline__cals">{{ entry.calories|round|int if entry.calories is not none else '--' }} Cal</span>
+                {% if entry.is_photo_logged %}
+                  <button
+                    type="button"
+                    class="timeline__edit"
+                    data-adjust-log-id="{{ entry.id }}"
+                    data-adjust-current="{{ entry.calories|round|int if entry.calories is not none else '' }}"
+                    aria-label="Adjust calorie estimate"
+                  >&#9998;</button>
+                {% endif %}
                 <button type="button" class="timeline__remove" data-delete-log-id="{{ entry.id }}" aria-label="Remove entry">&times;</button>
               </div>
             </div>
@@ -79,7 +113,7 @@
       </ol>
     {% else %}
       <div class="empty-state">
-        Nothing logged yet today. Tap Log on a food below to add it to your timeline.
+        Nothing logged yet today. Tap Log on a food below, or log a meal photo above.
       </div>
     {% endif %}
   </section>

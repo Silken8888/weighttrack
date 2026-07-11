@@ -489,6 +489,114 @@
     });
   }
 
+  /* ----------------------------------------------------------------
+     Meal photo logging: snap a photo, Claude gives a rough calorie
+     estimate, the whole thing lands directly on the timeline. The
+     calorie number can be corrected afterward -- see initCalorieAdjust.
+     ---------------------------------------------------------------- */
+
+  function initMealPhotoLogging() {
+    const form = document.getElementById("meal-photo-form");
+    const statusEl = document.getElementById("meal-photo-status");
+    if (!form || !statusEl) return;
+
+    const defaultStatusText = statusEl.textContent;
+
+    form.addEventListener("submit", function (evt) {
+      evt.preventDefault();
+
+      const fileInput = document.getElementById("meal-photo-input");
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        setStatus(statusEl, "error", "Choose a photo first.");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("photo", file);
+      formData.append("meal_type", document.getElementById("meal-photo-meal-type").value);
+      formData.append("servings", document.getElementById("meal-photo-servings").value || "1");
+      const description = document.getElementById("meal-photo-description").value.trim();
+      if (description) formData.append("description", description);
+
+      setStatus(statusEl, "pending", "Uploading photo and estimating calories\u2026");
+
+      fetch("/log/photo", { method: "POST", body: formData })
+        .then(function (res) {
+          if (!res.ok) return res.json().then(function (b) { throw new Error(b.error || "Couldn't log that meal."); });
+          return res.json();
+        })
+        .then(function (data) {
+          pollMealPhoto(data.job_id, statusEl, defaultStatusText, 0);
+        })
+        .catch(function (err) {
+          setStatus(statusEl, "error", err.message || "Couldn't start that upload.");
+        });
+    });
+  }
+
+  function pollMealPhoto(jobId, statusEl, defaultStatusText, attempt) {
+    const MAX_ATTEMPTS = 30;
+
+    fetch("/food/search/status/" + jobId)
+      .then(function (res) { return res.json(); })
+      .then(function (job) {
+        if (job.status === "pending") {
+          if (attempt >= MAX_ATTEMPTS) {
+            setStatus(statusEl, "error", "This is taking longer than expected -- check your timeline shortly.");
+            return;
+          }
+          setTimeout(function () {
+            pollMealPhoto(jobId, statusEl, defaultStatusText, attempt + 1);
+          }, 800);
+          return;
+        }
+
+        if (job.status === "error") {
+          setStatus(statusEl, "error", job.error || "Couldn't log that meal.");
+          return;
+        }
+
+        // job.note carries a non-fatal AI-estimate error even on success
+        // (photo saved, but no calorie guess) -- reload either way so the
+        // new timeline entry shows up, the note isn't worth blocking on.
+        window.location.reload();
+      })
+      .catch(function () {
+        setStatus(statusEl, "error", "Lost track of that upload -- check your timeline.");
+      });
+  }
+
+  function initCalorieAdjust() {
+    document.querySelectorAll("[data-adjust-log-id]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const id = btn.dataset.adjustLogId;
+        const current = btn.dataset.adjustCurrent || "";
+        const next = window.prompt("Adjust the calorie estimate for this meal:", current);
+        if (next === null) return;
+
+        const calories = parseFloat(next);
+        if (isNaN(calories) || calories < 0) {
+          window.alert("Enter a valid number of calories.");
+          return;
+        }
+
+        fetch("/log/" + id + "/adjust", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ calories: calories }),
+        })
+          .then(function (res) {
+            if (!res.ok) throw new Error("adjust failed");
+            window.location.reload();
+          })
+          .catch(function () {
+            window.alert("Couldn't update that -- try again.");
+          });
+      });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     startClock();
     resolveLocation();
@@ -498,5 +606,7 @@
     initDelete();
     initLogging();
     initTimelineDelete();
+    initMealPhotoLogging();
+    initCalorieAdjust();
   });
 })();

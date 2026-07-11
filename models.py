@@ -61,17 +61,22 @@ MEAL_TYPES = ("breakfast", "lunch", "dinner", "snack")
 
 
 class FoodLogEntry(db.Model):
-    """One entry on the daily timeline: a food from the library, eaten at
-    a particular time. Calories/macros are computed from the linked
-    FoodItem x servings at read time rather than copied in, so the
-    timeline always reflects the library's current numbers -- simpler
-    than snapshotting, and fine for a single-user personal app.
+    """One entry on the daily timeline, one of two shapes:
+
+    - Library-linked: food_item_id points at a catalogued FoodItem: precise
+      numbers, scaled by servings.
+    - Photo-logged: food_item_id is null; photo_url/description/ai_calories
+      come from a snapped photo of a home-cooked or unpackaged meal, run
+      through Claude's vision API for a rough estimate. manual_calories, if
+      set, always wins -- that's the "manual adjustment field right next to
+      it" the AI estimate needs, since vision can't judge portion size or
+      hidden oil/butter.
     """
 
     __tablename__ = "food_log_entries"
 
     id = db.Column(db.Integer, primary_key=True)
-    food_item_id = db.Column(db.Integer, db.ForeignKey("food_items.id"), nullable=False)
+    food_item_id = db.Column(db.Integer, db.ForeignKey("food_items.id"), nullable=True)
     food_item = db.relationship("FoodItem")
 
     meal_type = db.Column(db.String(16), nullable=False)  # one of MEAL_TYPES
@@ -83,6 +88,11 @@ class FoodLogEntry(db.Model):
     # "wrong" day until the app knows the user's timezone.
     logged_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
+    photo_url = db.Column(db.String(500))
+    description = db.Column(db.String(200))
+    ai_calories = db.Column(db.Float)
+    manual_calories = db.Column(db.Float)
+
     def scaled(self, field):
         base = getattr(self.food_item, field, None)
         if base is None:
@@ -91,7 +101,11 @@ class FoodLogEntry(db.Model):
 
     @property
     def calories(self):
-        return self.scaled("calories")
+        if self.manual_calories is not None:
+            return self.manual_calories
+        if self.food_item_id and self.food_item is not None:
+            return self.scaled("calories")
+        return self.ai_calories
 
     @property
     def protein_g(self):
@@ -105,19 +119,40 @@ class FoodLogEntry(db.Model):
     def fat_g(self):
         return self.scaled("fat_g")
 
+    @property
+    def display_name(self):
+        if self.food_item is not None:
+            return self.food_item.product_name
+        return self.description or "Photo-Logged Meal"
+
+    @property
+    def display_photo_url(self):
+        if self.photo_url:
+            return self.photo_url
+        if self.food_item is not None:
+            return self.food_item.photo_url
+        return None
+
+    @property
+    def is_photo_logged(self):
+        return self.food_item_id is None
+
     def to_dict(self):
         return {
             "id": self.id,
             "food_item_id": self.food_item_id,
             "nickname": self.food_item.nickname if self.food_item else None,
-            "product_name": self.food_item.product_name if self.food_item else None,
-            "photo_url": self.food_item.photo_url if self.food_item else None,
+            "product_name": self.display_name,
+            "photo_url": self.display_photo_url,
             "serving_description": self.food_item.serving_description if self.food_item else None,
             "meal_type": self.meal_type,
             "servings": self.servings,
             "logged_at": self.logged_at.isoformat() if self.logged_at else None,
-            "calories": self.scaled("calories"),
-            "protein_g": self.scaled("protein_g"),
-            "carbs_g": self.scaled("carbs_g"),
-            "fat_g": self.scaled("fat_g"),
+            "calories": self.calories,
+            "ai_calories": self.ai_calories,
+            "manual_calories": self.manual_calories,
+            "protein_g": self.protein_g,
+            "carbs_g": self.carbs_g,
+            "fat_g": self.fat_g,
+            "source": "photo" if self.is_photo_logged else "library",
         }

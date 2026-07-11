@@ -84,6 +84,42 @@ choice, real US FDA labels are gram-based too. Where US vs metric actually
 applies is body weight and height, which live in the not-yet-built
 Weigh-In Log / Dashboard; those will use lbs and ft/in when built.
 
+## Meal photo logging (Bunny.net + Claude vision)
+
+New: `POST /log/photo` -- snap a photo of a home-cooked or unpackaged meal
+(distinct from the barcode/OCR product lookup, which is for packaged
+products already in Open Food Facts). Pipeline, all on the background
+worker per the usual rule:
+
+1. Upload the photo to Bunny.net storage (`_upload_to_bunny`) -- one
+   retry on 5xx, same pattern as the Open Food Facts calls.
+2. Ask Claude (`claude-haiku-4-5-20251001`, cheap/fast is plenty for a
+   rough single-number guess) for a calorie estimate + short description,
+   via the Messages API with an image content block. Response is
+   requested as bare JSON; parsing strips markdown fences if present and
+   falls back to pulling the first number out of the text if JSON
+   parsing fails outright, so a formatting slip doesn't lose the estimate.
+3. The `FoodLogEntry` is created directly (no candidate list to confirm,
+   unlike food search) with `ai_calories` set.
+4. `POST /log/<id>/adjust` lets you correct the number afterward --
+   that's the "manual adjustment field right next to it" from the
+   original spec, since vision can't judge portion size or hidden
+   oil/butter. Once adjusted, `manual_calories` always wins over the AI
+   guess, and the "AI Estimate" badge disappears from the timeline.
+
+Tested with mocked Bunny/Anthropic responses (no real credentials
+available in this environment): confirmed the request handler still
+returns in 0.00s regardless of how long those calls take, confirmed
+markdown-fenced JSON parses correctly, confirmed a missing config
+(`BUNNY_STORAGE_ZONE`/`ANTHROPIC_API_KEY` unset) fails with a clear
+message instead of crashing, and confirmed manual adjustment correctly
+overrides the AI value everywhere it's read.
+
+Needs three new environment variables (`BUNNY_STORAGE_ZONE`,
+`BUNNY_STORAGE_API_KEY`, `BUNNY_PULL_ZONE_HOST`) plus `ANTHROPIC_API_KEY`
+-- reuses the same Anthropic API key already set up for WannaPeek, no
+second key needed.
+
 ## Deployment note: two new system packages
 
 `pyzbar` and `pytesseract` are Python wrappers around C libraries

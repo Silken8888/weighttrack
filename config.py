@@ -37,6 +37,24 @@ class Config:
     MAX_PHOTO_BYTES = 8 * 1024 * 1024  # 8 MB
     ALLOWED_PHOTO_MIMETYPES = {"image/jpeg", "image/png", "image/webp"}
 
+    # Meal photo logging: Bunny.net for storage, Claude for the calorie
+    # estimate. All three BUNNY_* values and ANTHROPIC_API_KEY come from
+    # environment variables -- if any are unset, the relevant feature
+    # fails with a clear message rather than a crash (see _upload_to_bunny
+    # and _estimate_meal_calories).
+    BUNNY_STORAGE_HOST = "storage.bunnycdn.com"
+    BUNNY_STORAGE_ZONE = os.environ.get("BUNNY_STORAGE_ZONE")
+    BUNNY_STORAGE_API_KEY = os.environ.get("BUNNY_STORAGE_API_KEY")
+    BUNNY_PULL_ZONE_HOST = os.environ.get("BUNNY_PULL_ZONE_HOST")
+    MAX_MEAL_PHOTO_BYTES = 8 * 1024 * 1024  # 8 MB
+
+    ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+    ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+    ANTHROPIC_VERSION = "2023-06-01"
+    # Haiku is plenty for a rough single-number calorie guess -- no need
+    # to pay for a bigger model on this call.
+    ANTHROPIC_MEAL_MODEL = "claude-haiku-4-5-20251001"
+
     # Background search jobs -- see app.py. Finished jobs are pruned from
     # the in-memory store after this many seconds.
     SEARCH_JOB_TTL_SECONDS = 300

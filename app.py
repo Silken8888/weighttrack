@@ -1,6 +1,8 @@
 import os
 import re
 import io
+import json
+import base64
 import time
 import uuid
 import threading
@@ -10,8 +12,20 @@ from datetime import datetime, timedelta
 import requests
 from flask import Flask, render_template, request, jsonify, abort
 from PIL import Image, UnidentifiedImageError
-from pyzbar.pyzbar import decode as decode_barcodes
 import pytesseract
+
+# pyzbar loads the libzbar0 shared library via ctypes at import time. If
+# DigitalOcean's Aptfile-installed package isn't on the runtime library
+# path for any reason, this import throws and would otherwise take the
+# entire app down before it can even start -- not just the one feature
+# that needs it. Barcode decoding degrades to "unavailable" instead.
+try:
+    from pyzbar.pyzbar import decode as decode_barcodes
+    BARCODE_DECODING_AVAILABLE = True
+except (ImportError, OSError) as exc:
+    decode_barcodes = None
+    BARCODE_DECODING_AVAILABLE = False
+    print(f"WARNING: barcode decoding unavailable ({exc}); falling back to OCR-only photo search")
 
 from config import config_by_name
 from models import db, FoodItem, FoodLogEntry, MEAL_TYPES
@@ -199,8 +213,13 @@ def _decode_barcode_from_bytes(image_bytes):
     """Local, no network -- try to read a UPC/EAN barcode straight off the
     photo. This is the primary path for packaged products: far more
     reliable than OCR or fuzzy text search, since it's an exact lookup.
-    Returns the first decoded barcode string, or None.
+    Returns the first decoded barcode string, or None. Returns None
+    immediately (no-op) if the zbar shared library wasn't loadable at
+    startup -- see the import guard above.
     """
+    if not BARCODE_DECODING_AVAILABLE:
+        return None
+
     try:
         img = Image.open(io.BytesIO(image_bytes))
         img.load()
@@ -249,6 +268,139 @@ def _best_guess_from_ocr(raw_text):
     if not candidates:
         return ""
     return max(candidates, key=len)
+
+
+def _upload_to_bunny(app, image_bytes, filename):
+    """Upload a meal photo to Bunny.net storage and return its public
+    (Pull Zone) URL. Local decode/OCR calls elsewhere in this file don't
+    need network access; this one genuinely does, so it gets the same
+    one-retry-on-5xx treatment as the Open Food Facts calls.
+    """
+    zone = app.config["BUNNY_STORAGE_ZONE"]
+    api_key = app.config["BUNNY_STORAGE_API_KEY"]
+    pull_host = app.config["BUNNY_PULL_ZONE_HOST"]
+    if not (zone and api_key and pull_host):
+        return None, "Photo storage isn't configured yet -- missing Bunny.net settings."
+
+    upload_url = f"https://{app.config['BUNNY_STORAGE_HOST']}/{zone}/meals/{filename}"
+    headers = {"AccessKey": api_key, "Content-Type": "application/octet-stream"}
+
+    attempts = app.config["OFF_RETRY_COUNT"] + 1
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            resp = requests.put(
+                upload_url,
+                headers=headers,
+                data=image_bytes,
+                timeout=app.config["OFF_REQUEST_TIMEOUT_SECONDS"],
+            )
+            if resp.status_code in (502, 503):
+                last_error = f"Bunny.net returned {resp.status_code}"
+                time.sleep(app.config["OFF_RETRY_DELAY_SECONDS"])
+                continue
+            resp.raise_for_status()
+            return f"https://{pull_host}/meals/{filename}", None
+        except requests.RequestException as exc:
+            last_error = str(exc)
+            time.sleep(app.config["OFF_RETRY_DELAY_SECONDS"])
+            continue
+
+    return None, last_error or "Couldn't upload the photo to storage"
+
+
+def _resize_for_ai(image_bytes, max_edge=1024):
+    """Downscale before sending to the API -- per Claude's vision guidance,
+    images are resized server-side past ~1568px anyway, and a smaller
+    upload means lower latency and fewer tokens for a task that only
+    needs a rough estimate."""
+    img = Image.open(io.BytesIO(image_bytes))
+    img = img.convert("RGB")
+    img.thumbnail((max_edge, max_edge))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
+
+
+def _estimate_meal_calories(app, image_bytes):
+    """Ask Claude for a rough calorie estimate + short description of a
+    meal photo. Returns (calories, description, error) -- calories/
+    description are None on failure, error is None on success.
+    """
+    if not app.config["ANTHROPIC_API_KEY"]:
+        return None, None, "AI calorie estimate isn't set up yet (missing ANTHROPIC_API_KEY)."
+
+    try:
+        resized = _resize_for_ai(image_bytes)
+    except UnidentifiedImageError:
+        return None, None, "That doesn't look like a readable image."
+
+    b64 = base64.standard_b64encode(resized).decode("utf-8")
+    headers = {
+        "x-api-key": app.config["ANTHROPIC_API_KEY"],
+        "anthropic-version": app.config["ANTHROPIC_VERSION"],
+        "content-type": "application/json",
+    }
+    payload = {
+        "model": app.config["ANTHROPIC_MEAL_MODEL"],
+        "max_tokens": 300,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
+                {"type": "text", "text": (
+                    "Look at this photo of a meal. Give your single best rough "
+                    "calorie estimate for personal food tracking (this is not "
+                    "medical or nutritional advice, just a ballpark), plus a short "
+                    "plain description under 8 words. Respond with ONLY a JSON "
+                    'object and nothing else, no markdown fences: '
+                    '{"calories": <integer>, "description": "<text>"}'
+                )},
+            ],
+        }],
+    }
+
+    attempts = app.config["OFF_RETRY_COUNT"] + 1
+    last_error = None
+    data = None
+    for attempt in range(attempts):
+        try:
+            resp = requests.post(
+                app.config["ANTHROPIC_API_URL"],
+                headers=headers,
+                json=payload,
+                timeout=app.config["OFF_REQUEST_TIMEOUT_SECONDS"] * 2,
+            )
+            if resp.status_code in (502, 503, 529):
+                last_error = f"Anthropic API returned {resp.status_code}"
+                time.sleep(app.config["OFF_RETRY_DELAY_SECONDS"])
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            break
+        except requests.RequestException as exc:
+            last_error = str(exc)
+            time.sleep(app.config["OFF_RETRY_DELAY_SECONDS"])
+            continue
+
+    if data is None:
+        return None, None, last_error or "Couldn't reach the AI calorie estimator"
+
+    raw_text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+    cleaned = re.sub(r"^```(json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
+
+    try:
+        parsed = json.loads(cleaned)
+        calories = int(parsed["calories"]) if parsed.get("calories") is not None else None
+        description = (parsed.get("description") or "").strip()[:200] or None
+        return calories, description, None
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+        # Last-resort fallback: pull the first number out of whatever came
+        # back rather than losing the estimate entirely over a formatting slip.
+        match = re.search(r"\d+", cleaned)
+        if match:
+            return int(match.group()), None, None
+        return None, None, "Got a response from the AI but couldn't read a calorie number from it."
 
 
 def _normalize_product(raw):
@@ -349,6 +501,43 @@ def _run_photo_job(app, job):
     return {"results": products, "match_type": "ocr", "note": note}, None
 
 
+def _run_meal_photo_job(app, job):
+    """Upload a meal photo to Bunny.net, ask Claude for a rough calorie
+    estimate, and create the FoodLogEntry directly (unlike food search,
+    there's no candidate list to confirm -- one photo becomes one entry,
+    and the user adjusts the calorie number afterward if the AI guessed
+    wrong).
+    """
+    image_bytes = job["image_bytes"]
+    filename = f"{uuid.uuid4().hex}.jpg"
+
+    photo_url, error = _upload_to_bunny(app, image_bytes, filename)
+    if error:
+        return None, error
+
+    ai_calories, ai_description, ai_error = _estimate_meal_calories(app, image_bytes)
+    # An AI-estimate failure shouldn't discard a photo that uploaded fine
+    # -- save the entry anyway with calories left blank so the user can
+    # fill it in themselves, and surface the AI error as a note instead
+    # of losing the whole log entry over it.
+
+    with app.app_context():
+        entry = FoodLogEntry(
+            food_item_id=None,
+            photo_url=photo_url,
+            description=job.get("description") or ai_description,
+            ai_calories=ai_calories,
+            meal_type=job["meal_type"],
+            servings=job.get("servings", 1.0),
+            logged_at=datetime.utcnow(),
+        )
+        db.session.add(entry)
+        db.session.commit()
+        result = entry.to_dict()
+
+    return {"entry": result, "note": ai_error}, None
+
+
 def _search_worker(app):
     while True:
         try:
@@ -367,6 +556,8 @@ def _search_worker(app):
         try:
             if job["kind"] == "photo":
                 outcome, error = _run_photo_job(app, job)
+            elif job["kind"] == "meal_photo":
+                outcome, error = _run_meal_photo_job(app, job)
             else:
                 outcome, error = _run_text_job(app, job)
 
@@ -376,12 +567,8 @@ def _search_worker(app):
                 continue
 
             with _jobs_lock:
-                _jobs[job_id].update(
-                    status="done",
-                    results=outcome["results"],
-                    match_type=outcome["match_type"],
-                    note=outcome["note"],
-                )
+                _jobs[job_id]["status"] = "done"
+                _jobs[job_id].update(outcome)
         except Exception as exc:  # noqa: BLE001 -- must never kill the worker thread
             with _jobs_lock:
                 _jobs[job_id].update(status="error", error=str(exc))
@@ -485,6 +672,73 @@ def register_routes(app):
         db.session.commit()
         return jsonify(success=True)
 
+    @app.route("/log/photo", methods=["POST"])
+    def log_photo_start():
+        """Snap a photo of a meal -- unlike /food/search-photo, this
+        doesn't return candidates to confirm. One photo becomes one
+        timeline entry directly; the calorie number is a starting guess
+        the user can correct via /log/<id>/adjust.
+        """
+        photo = request.files.get("photo")
+        if photo is None or photo.filename == "":
+            return jsonify(error="Attach a photo first"), 400
+        if photo.mimetype not in app.config["ALLOWED_PHOTO_MIMETYPES"]:
+            return jsonify(error="Please upload a JPEG, PNG, or WEBP photo"), 400
+
+        image_bytes = photo.read(app.config["MAX_MEAL_PHOTO_BYTES"] + 1)
+        if len(image_bytes) > app.config["MAX_MEAL_PHOTO_BYTES"]:
+            return jsonify(error="That photo is too large (8MB max)"), 400
+        if not image_bytes:
+            return jsonify(error="That photo looks empty -- try again"), 400
+
+        meal_type = (request.form.get("meal_type") or "").strip().lower()
+        if meal_type not in MEAL_TYPES:
+            return jsonify(error="Meal type must be breakfast, lunch, dinner, or snack"), 400
+
+        try:
+            servings = float(request.form.get("servings", 1) or 1)
+        except (TypeError, ValueError):
+            servings = 1.0
+        if servings <= 0:
+            servings = 1.0
+
+        description = (request.form.get("description") or "").strip() or None
+
+        job_id = uuid.uuid4().hex
+        with _jobs_lock:
+            _jobs[job_id] = {
+                "kind": "meal_photo",
+                "status": "pending",
+                "image_bytes": image_bytes,
+                "meal_type": meal_type,
+                "servings": servings,
+                "description": description,
+                "created_at": datetime.utcnow(),
+                "results": None,
+                "error": None,
+            }
+        _search_queue.put(job_id)
+
+        return jsonify(job_id=job_id), 202
+
+    @app.route("/log/<int:entry_id>/adjust", methods=["POST"])
+    def log_adjust(entry_id):
+        entry = db.session.get(FoodLogEntry, entry_id)
+        if entry is None:
+            abort(404)
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            calories = float(payload.get("calories"))
+        except (TypeError, ValueError):
+            return jsonify(error="Enter a valid number of calories"), 400
+        if calories < 0:
+            return jsonify(error="Calories can't be negative"), 400
+
+        entry.manual_calories = calories
+        db.session.commit()
+        return jsonify(entry.to_dict())
+
     @app.route("/food/search", methods=["POST"])
     def food_search_start():
         payload = request.get_json(silent=True) or {}
@@ -555,8 +809,11 @@ def register_routes(app):
 
         response = {"status": job["status"]}
         if job["status"] == "done":
-            response["results"] = job["results"]
-            response["match_type"] = job.get("match_type")
+            if "results" in job:
+                response["results"] = job["results"]
+                response["match_type"] = job.get("match_type")
+            if "entry" in job:
+                response["entry"] = job["entry"]
             response["note"] = job.get("note")
         elif job["status"] == "error":
             response["error"] = job["error"]
