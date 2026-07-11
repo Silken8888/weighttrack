@@ -159,6 +159,32 @@ nothing those packages themselves depend on -- unlike a normal
 `apt install`, it does not resolve dependencies. Every package in the
 tree above had to be named explicitly.
 
+**Fourth issue, hit live after all of the above**: `tesseract-ocr-eng`
+installed without any build error, but tesseract still couldn't find
+`eng.traineddata` at its compiled-in default path
+(`/usr/share/tesseract-ocr/4.00/tessdata`). Root cause: the Aptfile
+buildpack extracts packages into an internal layer rather than merging
+them into the filesystem paths an app expects. Shared libraries still
+resolve because the dynamic linker's search path gets pointed at that
+layer -- but a hardcoded data path like this doesn't get the same
+treatment, and the buildpack doesn't document what its actual layer path
+is, so guessing it would just be another one-shot patch with the same
+risk of being wrong.
+
+Fixed properly instead: `_locate_and_configure_tessdata()` in `app.py`
+searches a handful of plausible locations at startup (including
+`/layers/**/tessdata/eng.traineddata` and a few other buildpack-style
+paths) and points `TESSDATA_PREFIX` at whichever one actually has the
+file -- verified locally that this correctly adapts to wherever the
+file really is (found it at a `tesseract-ocr/5/...` path here, different
+from the `4.00` path DO's error showed, proving it's not hardcoded to
+one guess). If the search comes up empty on some future environment,
+`OCR_AVAILABLE` is `False` and OCR-based photo search degrades to a
+clear "couldn't find a barcode or readable text" message rather than a
+raw tesseract error reaching the user -- tested this exact scenario
+directly (forced `OCR_AVAILABLE = False`) and confirmed the whole
+photo-search flow still completes cleanly instead of erroring.
+
 ## Deployment note: psycopg2-binary vs. Python 3.14
 
 Hit this live during deployment: DigitalOcean's buildpack picked Python

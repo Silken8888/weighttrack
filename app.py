@@ -3,6 +3,7 @@ import re
 import io
 import json
 import base64
+import glob
 import time
 import uuid
 import threading
@@ -26,6 +27,54 @@ except (ImportError, OSError) as exc:
     decode_barcodes = None
     BARCODE_DECODING_AVAILABLE = False
     print(f"WARNING: barcode decoding unavailable ({exc}); falling back to OCR-only photo search")
+
+
+def _locate_and_configure_tessdata():
+    """DigitalOcean's Aptfile buildpack (heroku-buildpack-apt) installs
+    packages into an internal layer rather than merging them into the
+    filesystem paths an app normally expects. Shared libraries still
+    resolve correctly because the dynamic linker's search path gets
+    pointed at that layer, but tesseract's hardcoded default tessdata
+    path (e.g. /usr/share/tesseract-ocr/4.00/tessdata) does not get that
+    same treatment -- confirmed live: tesseract-ocr-eng installed
+    without error, but tesseract still couldn't find eng.traineddata at
+    its compiled-in default location.
+
+    Rather than guess the exact layer path (which could change with
+    buildpack versions and isn't documented), search a handful of
+    plausible locations at startup and point TESSDATA_PREFIX at whichever
+    one actually has the file. If none are found, OCR degrades to
+    "unavailable" instead of the app surfacing a raw tesseract error to
+    the user on every search.
+    """
+    if os.environ.get("TESSDATA_PREFIX"):
+        found = glob.glob(os.path.join(os.environ["TESSDATA_PREFIX"], "eng.traineddata"))
+        if found:
+            return True  # already configured correctly, e.g. by the platform itself
+
+    search_patterns = [
+        "/usr/share/tesseract-ocr/*/tessdata/eng.traineddata",
+        "/usr/share/tessdata/eng.traineddata",
+        "/usr/local/share/tessdata/eng.traineddata",
+        "/layers/*/apt/usr/share/tesseract-ocr/*/tessdata/eng.traineddata",
+        "/layers/**/tessdata/eng.traineddata",
+        "/workspace/**/tessdata/eng.traineddata",
+        "/app/.apt/usr/share/tesseract-ocr/*/tessdata/eng.traineddata",
+    ]
+
+    for pattern in search_patterns:
+        matches = glob.glob(pattern, recursive=True)
+        if matches:
+            os.environ["TESSDATA_PREFIX"] = os.path.dirname(matches[0])
+            print(f"INFO: found tessdata at {matches[0]}, TESSDATA_PREFIX set")
+            return True
+
+    return False
+
+
+OCR_AVAILABLE = _locate_and_configure_tessdata()
+if not OCR_AVAILABLE:
+    print("WARNING: tesseract language data (eng.traineddata) not found in any known location; OCR fallback disabled")
 
 from config import config_by_name
 from models import db, FoodItem, FoodLogEntry, MEAL_TYPES
@@ -248,7 +297,13 @@ def _ocr_text_from_bytes(image_bytes):
     Facts doesn't offer a public reverse-image / visual product search,
     so this is the best we can do from a photo alone: read the text off
     the label and feed it through the same search path as a typed query.
+    Returns "" immediately if tessdata wasn't found at startup -- see
+    _locate_and_configure_tessdata -- rather than letting a raw
+    tesseract error reach the user.
     """
+    if not OCR_AVAILABLE:
+        return ""
+
     try:
         img = Image.open(io.BytesIO(image_bytes))
         img.load()
