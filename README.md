@@ -369,6 +369,40 @@ contributed 0 regardless of their real AI-estimated or manually-adjusted
 calories. Fixed and confirmed with a real photo-logged entry that it now
 counts correctly on both the Food Library and Dashboard pages.
 
+## Ninth issue: barcode decoding was never actually working on DigitalOcean
+
+The "Unable to find zbar shared library" warning that seemed fixed by
+adding dependency packages earlier was never actually fixed -- that fix
+targeted the wrong failure mode. Root-caused properly this time by
+reading pyzbar's actual source: on Linux, it finds the zbar library with
+exactly one mechanism, `ctypes.util.find_library('zbar')`, which
+searches the system's `ldconfig` cache -- not the filesystem directly.
+DigitalOcean's Aptfile buildpack installs `libzbar0` into an internal
+layer without ever running `ldconfig` to register it there, so
+`find_library` returns `None` even though the file is genuinely present
+on disk. This is an earlier, different failure stage than the tesseract
+dependency issue from earlier in the night: the library is never even
+*located*, let alone loaded, so no amount of adding libzbar0's own
+dependencies to the Aptfile could ever have fixed it. That's why the
+13-package fix didn't help -- confirmed live it was still failing with
+the identical warning afterward.
+
+Confirmed this diagnosis two ways before trusting it: (1) reproduced the
+exact failure locally by monkey-patching `find_library('zbar')` to
+return `None`, matching the live warning exactly, and (2) confirmed
+`find_library` succeeds without any patching in this local environment,
+explaining why the bug never showed up in testing here despite being
+present on DigitalOcean the whole time.
+
+Fixed by patching `find_library` to fall back to a direct filesystem
+search (same technique as the tessdata fix) specifically for "zbar",
+before pyzbar's import-time load runs -- restored immediately afterward
+so it doesn't affect any other library lookup in the app. Tested
+end-to-end under the exact simulated failure condition: barcode
+decoding, and a full photo search against a real barcode file, both
+work correctly even when `find_library` is broken exactly like
+DigitalOcean's environment.
+
 ## Running it locally
 
 ```bash

@@ -13,11 +13,46 @@ import requests
 from flask import Flask, render_template, request, jsonify, abort
 from PIL import Image, UnidentifiedImageError
 
-# pyzbar loads the libzbar0 shared library via ctypes at import time. If
-# DigitalOcean's Aptfile-installed package isn't on the runtime library
-# path for any reason, this import throws and would otherwise take the
-# entire app down before it can even start -- not just the one feature
-# that needs it. Barcode decoding degrades to "unavailable" instead.
+# pyzbar's only mechanism for finding the zbar shared library on Linux is
+# ctypes.util.find_library('zbar'), which searches the system's ldconfig
+# cache -- not the filesystem directly. Confirmed live: DigitalOcean's
+# Aptfile buildpack (heroku-buildpack-apt) installs libzbar0 into an
+# internal layer without ever running ldconfig to register it, so
+# find_library returns None even though the file genuinely exists on
+# disk. This is a different, earlier-stage failure than the tesseract
+# dependency issue from earlier -- no amount of adding libzbar0's own
+# dependencies to the Aptfile could ever have fixed this, since the
+# library is never even located in the first place, let alone loaded.
+#
+# Patch find_library to fall back to a direct filesystem search when
+# asked for "zbar" specifically, before pyzbar's import-time load runs.
+# Restored immediately after so this doesn't affect any other library
+# lookup elsewhere in the app or its dependencies.
+import ctypes.util as _ctypes_util
+import glob as _glob
+
+_real_find_library = _ctypes_util.find_library
+
+
+def _find_library_with_zbar_fallback(name):
+    if name == "zbar":
+        found = _real_find_library(name)
+        if found:
+            return found
+        candidates = (
+            _glob.glob("/usr/lib/*/libzbar.so*")
+            + _glob.glob("/usr/lib/libzbar.so*")
+            + _glob.glob("/usr/local/lib/*/libzbar.so*")
+            + _glob.glob("/layers/*/apt/usr/lib/*/libzbar.so*")
+            + _glob.glob("/layers/**/libzbar.so*", recursive=True)
+        )
+        if candidates:
+            print(f"INFO: ldconfig didn't know about libzbar, found it directly at {candidates[0]}")
+            return candidates[0]
+    return _real_find_library(name)
+
+
+_ctypes_util.find_library = _find_library_with_zbar_fallback
 try:
     from pyzbar.pyzbar import decode as decode_barcodes
     BARCODE_DECODING_AVAILABLE = True
@@ -25,6 +60,8 @@ except (ImportError, OSError) as exc:
     decode_barcodes = None
     BARCODE_DECODING_AVAILABLE = False
     print(f"WARNING: barcode decoding unavailable ({exc})")
+finally:
+    _ctypes_util.find_library = _real_find_library
 
 from config import config_by_name
 from models import (
