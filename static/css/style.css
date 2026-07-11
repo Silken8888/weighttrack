@@ -205,7 +205,9 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 .stat-card__value--coral { color: var(--coral); }
+.stat-card__value--teal { color: var(--teal); }
 .stat-card__value--muted { color: var(--text-faint); font-size: 15px; }
+.stat-card__value--muted a { color: var(--text-faint); text-decoration: underline; }
 
 /* --------------------------------------------------------------------
    Hero
@@ -895,6 +897,142 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 11px;
   color: var(--text-faint);
   text-align: center;
+}
+
+/* --------------------------------------------------------------------
+   Weigh-In Log / Dashboard / Vacation Mode
+   -------------------------------------------------------------------- */
+
+.weigh-in-form,
+.vacation-form,
+.profile-form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.weigh-in-form input[type="number"] { width: 130px; }
+.weigh-in-form input[type="text"] { flex: 1 1 200px; }
+
+.weigh-in-form input,
+.vacation-form input,
+.profile-form input,
+.profile-form select {
+  font-family: var(--font-body);
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.vacation-form input[type="text"] { flex: 1 1 160px; }
+
+.vacation-form__date-label,
+.profile-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.profile-form label { flex: 1 1 140px; }
+
+.milestones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 24px;
+}
+
+.milestone-badge {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 12px;
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--pink);
+}
+
+.chart-panel {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  margin-bottom: 28px;
+}
+
+.weigh-in-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart-panel__range {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 6px;
+}
+
+.weigh-in-list {
+  list-style: none;
+  margin: 0 0 40px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.weigh-in-row {
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.weigh-in-row__weight {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text);
+  margin: 0 0 2px;
+}
+
+.weigh-in-row__weight span {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.weigh-in-row__date {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin: 0;
+}
+
+.weigh-in-row__notes {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 4px 0 0;
+}
+
+.weigh-in-row__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 /* --------------------------------------------------------------------

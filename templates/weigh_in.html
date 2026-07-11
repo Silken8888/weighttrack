@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Weigh-In Log &middot; WeighTrack{% endblock %}
+
+{% block content %}
+
+  <section class="hero">
+    <h1>Weigh-In Log</h1>
+    <p>One number a day, logged in pounds. The chart tracks your 7-day rolling average, not the daily ups and downs -- those are mostly noise.</p>
+  </section>
+
+  <section class="search-panel">
+    <p class="search-panel__eyebrow">Log Today's Weight</p>
+    <form id="weigh-in-form" class="weigh-in-form">
+      <input type="number" id="weigh-in-weight" step="0.1" min="1" max="1000" placeholder="Weight (lbs)" required>
+      <input type="text" id="weigh-in-notes" placeholder="Optional: sleep, stress, alcohol, anything worth noting">
+      <button type="submit" class="btn">Log It</button>
+    </form>
+    <p class="search-status" id="weigh-in-status"></p>
+  </section>
+
+  <section class="stats-row">
+    <div class="stat-card">
+      <p class="stat-card__label">Current Streak</p>
+      <p class="stat-card__value stat-card__value--teal">{{ streak }} <span>Day{{ '' if streak == 1 else 's' }}</span></p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-card__label">7-Day Average</p>
+      {% if rolling_avg is not none %}
+        <p class="stat-card__value">{{ rolling_avg }} <span>Lbs</span></p>
+      {% else %}
+        <p class="stat-card__value stat-card__value--muted">No Data Yet</p>
+      {% endif %}
+    </div>
+    <div class="stat-card">
+      <p class="stat-card__label">Latest</p>
+      {% if weigh_ins %}
+        <p class="stat-card__value stat-card__value--coral">{{ weigh_ins[0].weight_lbs }} <span>Lbs</span></p>
+      {% else %}
+        <p class="stat-card__value stat-card__value--muted">No Data Yet</p>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if milestones %}
+    <div class="milestones">
+      {% for m in milestones %}
+        <span class="milestone-badge">{{ m }}</span>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if chart %}
+    <section class="chart-panel">
+      <p class="search-panel__eyebrow">7-Day Rolling Average</p>
+      <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" class="weigh-in-chart" role="img" aria-label="7-day rolling average weight trend">
+        <polyline points="{{ chart.polyline_points }}" fill="none" stroke="#2dd4bf" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+        <circle cx="{{ chart.last_x }}" cy="{{ chart.last_y }}" r="4.5" fill="#2dd4bf" />
+      </svg>
+      <div class="chart-panel__range">
+        <span>{{ chart.lo }} Lbs</span>
+        <span>{{ chart.hi }} Lbs</span>
+      </div>
+    </section>
+  {% endif %}
+
+  <section>
+    <div class="library-header">
+      <h2>Entries</h2>
+      <span class="library-count">{{ weigh_ins|length }} Total</span>
+    </div>
+
+    {% if weigh_ins %}
+      <ul class="weigh-in-list">
+        {% for w in weigh_ins %}
+          <li class="weigh-in-row">
+            <div>
+              <p class="weigh-in-row__weight">{{ w.weight_lbs }} <span>Lbs</span></p>
+              <p class="weigh-in-row__date">{{ w.logged_at.strftime('%a, %b %-d') }}</p>
+              {% if w.notes %}<p class="weigh-in-row__notes">{{ w.notes }}</p>{% endif %}
+            </div>
+            <button type="button" class="timeline__remove" data-delete-weigh-in-id="{{ w.id }}" aria-label="Remove entry">&times;</button>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state">
+        No weigh-ins logged yet. Add today's above to start your streak.
+      </div>
+    {% endif %}
+  </section>
+
+{% endblock %}

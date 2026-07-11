@@ -6,16 +6,24 @@
   <section class="stats-row">
     <div class="stat-card">
       <p class="stat-card__label">Weight</p>
-      <p class="stat-card__value stat-card__value--muted">Coming Soon</p>
+      {% if latest_weight is not none %}
+        <p class="stat-card__value">{{ latest_weight|round(1) }} <span>Lbs</span></p>
+      {% else %}
+        <p class="stat-card__value stat-card__value--muted"><a href="{{ url_for('weigh_in_log') }}">Log One</a></p>
+      {% endif %}
     </div>
     <div class="stat-card">
       <p class="stat-card__label">Streak</p>
-      <p class="stat-card__value stat-card__value--muted">Coming Soon</p>
+      {% if streak %}
+        <p class="stat-card__value stat-card__value--teal">{{ streak }} <span>Day{{ '' if streak == 1 else 's' }}</span></p>
+      {% else %}
+        <p class="stat-card__value stat-card__value--muted"><a href="{{ url_for('weigh_in_log') }}">Log One</a></p>
+      {% endif %}
     </div>
     <div class="stat-card">
       <p class="stat-card__label">Calories Today</p>
       <p class="stat-card__value stat-card__value--coral">
-        {{ calories_today if calories_today is not none else 0 }} <span>Cal</span>
+        {{ calories_today if calories_today is not none else 0 }} <span>{{ '/ ' ~ calorie_target ~ ' Cal' if calorie_target else 'Cal' }}</span>
       </p>
     </div>
   </section>
@@ -38,7 +46,7 @@
         Upload a Photo Instead
       </label>
       <input type="file" id="search-photo-input" accept="image/jpeg,image/png,image/webp" hidden>
-      <span class="search-photo__hint">A clear shot of the barcode works best; a readable label photo works too.</span>
+      <span class="search-photo__hint">Needs a clear, legible shot of the barcode -- doesn't read labels.</span>
     </div>
 
     <p class="search-status" id="search-status"></p>

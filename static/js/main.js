@@ -604,6 +604,118 @@
     });
   }
 
+  /* ----------------------------------------------------------------
+     Generic helper: POST JSON to a URL, reload on success, show the
+     server's error message (if any) in a status element on failure.
+     Used by weigh-in, vacation, profile, and exercise forms below.
+     ---------------------------------------------------------------- */
+
+  function postJSON(url, payload, statusEl) {
+    if (statusEl) setStatus(statusEl, "pending", "Saving\u2026");
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then(function (res) {
+        return res.json().then(function (body) {
+          if (!res.ok) throw new Error(body.error || "Something went wrong.");
+          return body;
+        });
+      })
+      .then(function (body) {
+        window.location.reload();
+        return body;
+      })
+      .catch(function (err) {
+        if (statusEl) setStatus(statusEl, "error", err.message);
+        else window.alert(err.message);
+      });
+  }
+
+  function postDelete(url) {
+    fetch(url, { method: "POST" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("delete failed");
+        window.location.reload();
+      })
+      .catch(function () {
+        window.alert("Couldn't remove that -- try again.");
+      });
+  }
+
+  function initWeighInPage() {
+    const form = document.getElementById("weigh-in-form");
+    if (form) {
+      form.addEventListener("submit", function (evt) {
+        evt.preventDefault();
+        const statusEl = document.getElementById("weigh-in-status");
+        const weight = document.getElementById("weigh-in-weight").value;
+        const notes = document.getElementById("weigh-in-notes").value.trim();
+        postJSON("/weigh-in/add", { weight_lbs: weight, notes: notes }, statusEl);
+      });
+    }
+    document.querySelectorAll("[data-delete-weigh-in-id]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        postDelete("/weigh-in/" + btn.dataset.deleteWeighInId + "/delete");
+      });
+    });
+  }
+
+  function initVacationPage() {
+    const form = document.getElementById("vacation-form");
+    if (form) {
+      form.addEventListener("submit", function (evt) {
+        evt.preventDefault();
+        const statusEl = document.getElementById("vacation-status");
+        postJSON("/vacation/add", {
+          label: document.getElementById("vacation-label").value.trim(),
+          start_date: document.getElementById("vacation-start").value,
+          end_date: document.getElementById("vacation-end").value,
+        }, statusEl);
+      });
+    }
+    document.querySelectorAll("[data-delete-vacation-id]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        postDelete("/vacation/" + btn.dataset.deleteVacationId + "/delete");
+      });
+    });
+  }
+
+  function initDashboardPage() {
+    const profileForm = document.getElementById("profile-form");
+    if (profileForm) {
+      profileForm.addEventListener("submit", function (evt) {
+        evt.preventDefault();
+        const statusEl = document.getElementById("profile-status");
+        postJSON("/dashboard/profile", {
+          height_in: document.getElementById("profile-height").value,
+          age: document.getElementById("profile-age").value,
+          biological_sex: document.getElementById("profile-sex").value,
+          activity_level: document.getElementById("profile-activity").value,
+        }, statusEl);
+      });
+    }
+
+    const exerciseForm = document.getElementById("exercise-form");
+    if (exerciseForm) {
+      exerciseForm.addEventListener("submit", function (evt) {
+        evt.preventDefault();
+        const statusEl = document.getElementById("exercise-status");
+        postJSON("/exercise/add", {
+          activity: document.getElementById("exercise-activity").value.trim(),
+          calories_burned: document.getElementById("exercise-calories").value,
+        }, statusEl);
+      });
+    }
+
+    document.querySelectorAll("[data-delete-exercise-id]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        postDelete("/exercise/" + btn.dataset.deleteExerciseId + "/delete");
+      });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     startClock();
     resolveLocation();
@@ -615,5 +727,8 @@
     initTimelineDelete();
     initMealPhotoLogging();
     initCalorieAdjust();
+    initWeighInPage();
+    initVacationPage();
+    initDashboardPage();
   });
 })();

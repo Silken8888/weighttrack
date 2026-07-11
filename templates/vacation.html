@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Vacation Mode &middot; WeighTrack{% endblock %}
+
+{% block content %}
+
+  <section class="hero">
+    <h1>Vacation Mode</h1>
+    <p>Mark off a trip and your Weigh-In streak won't break just because you didn't log while you were away.</p>
+  </section>
+
+  <section class="search-panel">
+    <p class="search-panel__eyebrow">Add A Trip</p>
+    <form id="vacation-form" class="vacation-form">
+      <input type="text" id="vacation-label" placeholder="e.g. Asia trip" maxlength="120">
+      <label class="vacation-form__date-label">
+        Start
+        <input type="date" id="vacation-start" required>
+      </label>
+      <label class="vacation-form__date-label">
+        End
+        <input type="date" id="vacation-end" required>
+      </label>
+      <button type="submit" class="btn">Add Trip</button>
+    </form>
+    <p class="search-status" id="vacation-status"></p>
+  </section>
+
+  {% if current_periods %}
+    <section>
+      <div class="library-header">
+        <h2>Currently Away</h2>
+      </div>
+      <ul class="weigh-in-list">
+        {% for p in current_periods %}
+          <li class="weigh-in-row">
+            <div>
+              <p class="weigh-in-row__weight">{{ p.label }}</p>
+              <p class="weigh-in-row__date">{{ p.start_date.strftime('%b %-d') }} &ndash; {{ p.end_date.strftime('%b %-d') }} &middot; streak protected</p>
+            </div>
+            <button type="button" class="timeline__remove" data-delete-vacation-id="{{ p.id }}" aria-label="Remove trip">&times;</button>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  <section>
+    <div class="library-header">
+      <h2>Upcoming</h2>
+      <span class="library-count">{{ upcoming_periods|length }}</span>
+    </div>
+    {% if upcoming_periods %}
+      <ul class="weigh-in-list">
+        {% for p in upcoming_periods %}
+          <li class="weigh-in-row">
+            <div>
+              <p class="weigh-in-row__weight">{{ p.label }}</p>
+              <p class="weigh-in-row__date">{{ p.start_date.strftime('%b %-d') }} &ndash; {{ p.end_date.strftime('%b %-d') }}</p>
+            </div>
+            <button type="button" class="timeline__remove" data-delete-vacation-id="{{ p.id }}" aria-label="Remove trip">&times;</button>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state">Nothing upcoming.</div>
+    {% endif %}
+  </section>
+
+  <section>
+    <div class="library-header">
+      <h2>Past Trips</h2>
+      <span class="library-count">{{ past_periods|length }}</span>
+    </div>
+    {% if past_periods %}
+      <ul class="weigh-in-list">
+        {% for p in past_periods %}
+          <li class="weigh-in-row">
+            <div>
+              <p class="weigh-in-row__weight">{{ p.label }}</p>
+              <p class="weigh-in-row__date">{{ p.start_date.strftime('%b %-d') }} &ndash; {{ p.end_date.strftime('%b %-d') }}</p>
+            </div>
+            <button type="button" class="timeline__remove" data-delete-vacation-id="{{ p.id }}" aria-label="Remove trip">&times;</button>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state">No past trips logged.</div>
+    {% endif %}
+  </section>
+
+{% endblock %}

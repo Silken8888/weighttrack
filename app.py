@@ -3,7 +3,6 @@ import re
 import io
 import json
 import base64
-import glob
 import time
 import uuid
 import threading
@@ -12,8 +11,7 @@ from datetime import datetime, timedelta
 
 import requests
 from flask import Flask, render_template, request, jsonify, abort
-from PIL import Image, ImageOps, UnidentifiedImageError
-import pytesseract
+from PIL import Image, UnidentifiedImageError
 
 # pyzbar loads the libzbar0 shared library via ctypes at import time. If
 # DigitalOcean's Aptfile-installed package isn't on the runtime library
@@ -26,58 +24,13 @@ try:
 except (ImportError, OSError) as exc:
     decode_barcodes = None
     BARCODE_DECODING_AVAILABLE = False
-    print(f"WARNING: barcode decoding unavailable ({exc}); falling back to OCR-only photo search")
-
-
-def _locate_and_configure_tessdata():
-    """DigitalOcean's Aptfile buildpack (heroku-buildpack-apt) installs
-    packages into an internal layer rather than merging them into the
-    filesystem paths an app normally expects. Shared libraries still
-    resolve correctly because the dynamic linker's search path gets
-    pointed at that layer, but tesseract's hardcoded default tessdata
-    path (e.g. /usr/share/tesseract-ocr/4.00/tessdata) does not get that
-    same treatment -- confirmed live: tesseract-ocr-eng installed
-    without error, but tesseract still couldn't find eng.traineddata at
-    its compiled-in default location.
-
-    Rather than guess the exact layer path (which could change with
-    buildpack versions and isn't documented), search a handful of
-    plausible locations at startup and point TESSDATA_PREFIX at whichever
-    one actually has the file. If none are found, OCR degrades to
-    "unavailable" instead of the app surfacing a raw tesseract error to
-    the user on every search.
-    """
-    if os.environ.get("TESSDATA_PREFIX"):
-        found = glob.glob(os.path.join(os.environ["TESSDATA_PREFIX"], "eng.traineddata"))
-        if found:
-            return True  # already configured correctly, e.g. by the platform itself
-
-    search_patterns = [
-        "/usr/share/tesseract-ocr/*/tessdata/eng.traineddata",
-        "/usr/share/tessdata/eng.traineddata",
-        "/usr/local/share/tessdata/eng.traineddata",
-        "/layers/*/apt/usr/share/tesseract-ocr/*/tessdata/eng.traineddata",
-        "/layers/**/tessdata/eng.traineddata",
-        "/workspace/**/tessdata/eng.traineddata",
-        "/app/.apt/usr/share/tesseract-ocr/*/tessdata/eng.traineddata",
-    ]
-
-    for pattern in search_patterns:
-        matches = glob.glob(pattern, recursive=True)
-        if matches:
-            os.environ["TESSDATA_PREFIX"] = os.path.dirname(matches[0])
-            print(f"INFO: found tessdata at {matches[0]}, TESSDATA_PREFIX set")
-            return True
-
-    return False
-
-
-OCR_AVAILABLE = _locate_and_configure_tessdata()
-if not OCR_AVAILABLE:
-    print("WARNING: tesseract language data (eng.traineddata) not found in any known location; OCR fallback disabled")
+    print(f"WARNING: barcode decoding unavailable ({exc})")
 
 from config import config_by_name
-from models import db, FoodItem, FoodLogEntry, MEAL_TYPES
+from models import (
+    db, FoodItem, FoodLogEntry, MEAL_TYPES,
+    WeighIn, VacationPeriod, UserProfile, ExerciseEntry, ACTIVITY_LEVELS,
+)
 
 
 def create_app(config_name=None):
@@ -339,80 +292,11 @@ def _decode_barcode_from_bytes(image_bytes):
     return None
 
 
-def _ocr_text_from_bytes(image_bytes):
-    """Local, no network -- fallback for when no barcode is visible
-    (e.g. a photo of the front label rather than the back). Open Food
-    Facts doesn't offer a public reverse-image / visual product search,
-    so this is the best we can do from a photo alone: read the text off
-    the label and feed it through the same search path as a typed query.
-    Returns "" immediately if tessdata wasn't found at startup -- see
-    _locate_and_configure_tessdata -- rather than letting a raw
-    tesseract error reach the user.
-
-    Grayscale + autocontrast before OCR -- confirmed against a real
-    product photo that default color-image OCR completely missed
-    lower-contrast text (white-on-orange "Caramel Macchiato" band) that
-    this preprocessing recovers cleanly.
-
-    Uses image_to_data (per-word confidence) rather than image_to_string
-    (plain text), and drops low-confidence words. This replaced an
-    earlier line-based approach that picked up garbage sitting anywhere
-    in the OCR output -- confirmed live that noise isn't reliably
-    isolated to the start or end of the text, so trimming from one end
-    doesn't help; filtering by Tesseract's own confidence score does.
-    Confirmed on a real photo: real label words scored 80-96, stray
-    punctuation and misread fragments scored 0-30.
-    """
-    if not OCR_AVAILABLE:
-        return ""
-
-    try:
-        img = Image.open(io.BytesIO(image_bytes))
-        img.load()
-    except UnidentifiedImageError:
-        return ""
-
-    img = img.convert("RGB")
-    img.thumbnail((1600, 1600))
-    gray = ImageOps.grayscale(img)
-    gray = ImageOps.autocontrast(gray, cutoff=2)
-
-    data = pytesseract.image_to_data(gray, output_type=pytesseract.Output.DICT)
-    words = []
-    for word, conf in zip(data.get("text", []), data.get("conf", [])):
-        word = word.strip()
-        if not word:
-            continue
-        try:
-            if float(conf) < 60:
-                continue
-        except (TypeError, ValueError):
-            continue
-        words.append(word)
-    return " ".join(words)
-
-
-def _best_guess_from_ocr(filtered_text):
-    """The input here is already confidence-filtered (see
-    _ocr_text_from_bytes) -- this just dedupes immediate repeats (a
-    product's name sometimes appears twice on the same label, e.g. once
-    in a banner and once in the body text) and caps total length so the
-    search cascade has a bounded number of candidates to try.
-    """
-    words = filtered_text.split()
-    deduped = []
-    for w in words:
-        if deduped and deduped[-1].lower() == w.lower():
-            continue
-        deduped.append(w)
-    return " ".join(deduped[:15])
-
-
 def _upload_to_bunny(app, image_bytes, filename):
     """Upload a meal photo to Bunny.net storage and return its public
-    (Pull Zone) URL. Local decode/OCR calls elsewhere in this file don't
-    need network access; this one genuinely does, so it gets the same
-    one-retry-on-5xx treatment as the Open Food Facts calls.
+    (Pull Zone) URL. Barcode decode is local (no network); this one
+    genuinely needs it, so it gets the same one-retry-on-5xx treatment
+    as the Open Food Facts calls.
     """
     zone = app.config["BUNNY_STORAGE_ZONE"]
     api_key = app.config["BUNNY_STORAGE_API_KEY"]
@@ -659,28 +543,24 @@ def _run_photo_job(app, job):
                         )
 
             return {"results": results, "match_type": "barcode", "note": note}, None
-        # Decoded a barcode, but Open Food Facts has no record of it --
-        # fall through to OCR rather than dead-ending.
-
-    raw_text = _ocr_text_from_bytes(image_bytes)
-    guess = _best_guess_from_ocr(raw_text)
-    if not guess:
+        # Decoded a barcode, but Open Food Facts has no record of it.
         return {
             "results": [],
             "match_type": "none",
-            "note": "Couldn't find a barcode or readable text on that photo -- try the text search, or a clearer photo of the label or barcode.",
+            "note": f"Read barcode {barcode} off the photo, but Open Food Facts has no record of it. Try the text search above.",
         }, None
 
-    products_raw, query_used, error = _progressive_search(app, guess, job["page_size"])
-    if error:
-        return None, error
-    products = _rank_products([_normalize_product(p) for p in products_raw])
-    note = f'Read "{guess}" off the photo' + (
-        f' -- searched "{query_used}".' if query_used != _clean_query(guess) else "."
-    )
-    if not products:
-        note = f'Read "{guess}" off the photo, but couldn\'t find a match. Try the text search instead.'
-    return {"results": products, "match_type": "ocr", "note": note}, None
+    # No barcode found at all. This app intentionally does not fall back
+    # to OCR-based label reading here -- that path caused a long chain of
+    # real, hard-to-predict failures (garbled text, hyphenated words
+    # silently breaking Open Food Facts' search, sparse duplicate
+    # entries) with no clean fix. Barcode-only is slower to set up (you
+    # need a legible barcode in the shot) but exact when it works.
+    return {
+        "results": [],
+        "match_type": "none",
+        "note": "Couldn't find a barcode in that photo. Try a clearer, closer shot of the barcode, or use the text search above.",
+    }, None
 
 
 def _run_meal_photo_job(app, job):
@@ -768,6 +648,91 @@ def start_search_worker(app):
 
 
 # ---------------------------------------------------------------------------
+# Weigh-in log helpers: streak (vacation-aware), rolling average, and a
+# hand-rolled SVG sparkline -- no charting library needed for one line.
+# ---------------------------------------------------------------------------
+
+def _compute_streak(weigh_ins, vacation_periods):
+    """Consecutive calendar days with a weigh-in, walking backward from
+    today, treating vacation-covered days as grace days that count
+    toward the streak without needing an entry -- per the original
+    spec, a trip shouldn't zero out (or silently discount) an
+    established streak. Today itself is allowed to be pending (not yet
+    logged) without breaking anything, since the day isn't over.
+    """
+    if not weigh_ins:
+        return 0
+    logged_dates = {w.logged_at.date() for w in weigh_ins}
+
+    def on_vacation(d):
+        return any(vp.start_date <= d <= vp.end_date for vp in vacation_periods)
+
+    streak = 0
+    day = datetime.utcnow().date()
+    if day not in logged_dates and not on_vacation(day):
+        day -= timedelta(days=1)
+    while day in logged_dates or on_vacation(day):
+        streak += 1
+        day -= timedelta(days=1)
+    return streak
+
+
+def _rolling_average(weigh_ins, as_of, window_days=7):
+    window_start = as_of - timedelta(days=window_days - 1)
+    values = [w.weight_lbs for w in weigh_ins if window_start <= w.logged_at.date() <= as_of]
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _weigh_in_chart_svg(weigh_ins, days=30):
+    """A 7-day rolling average line, not raw daily dots -- per the
+    original spec, daily weight alone is too noisy to be useful. Plain
+    inline SVG, no charting library.
+    """
+    if len(weigh_ins) < 2:
+        return None
+
+    today = datetime.utcnow().date()
+    points = []
+    for i in range(days, -1, -1):
+        day = today - timedelta(days=i)
+        avg = _rolling_average(weigh_ins, day)
+        if avg is not None:
+            points.append((day, avg))
+
+    if len(points) < 2:
+        return None
+
+    values = [v for _, v in points]
+    lo, hi = min(values), max(values)
+    span = (hi - lo) or 1.0
+
+    width, height, pad = 600, 160, 12
+    usable_w = width - 2 * pad
+    usable_h = height - 2 * pad
+
+    coords = []
+    for i, (_, v) in enumerate(points):
+        x = pad + (i / (len(points) - 1)) * usable_w
+        y = pad + (1 - (v - lo) / span) * usable_h
+        coords.append((round(x, 1), round(y, 1)))
+
+    polyline_points = " ".join(f"{x},{y}" for x, y in coords)
+    last_x, last_y = coords[-1]
+
+    return {
+        "polyline_points": polyline_points,
+        "last_x": last_x,
+        "last_y": last_y,
+        "width": width,
+        "height": height,
+        "lo": round(lo, 1),
+        "hi": round(hi, 1),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -789,14 +754,49 @@ def register_routes(app):
             .order_by(FoodLogEntry.logged_at)
         ).scalars().all()
 
+    def _all_weigh_ins():
+        return db.session.execute(
+            db.select(WeighIn).order_by(WeighIn.logged_at)
+        ).scalars().all()
+
+    def _all_vacation_periods():
+        return db.session.execute(
+            db.select(VacationPeriod).order_by(VacationPeriod.start_date)
+        ).scalars().all()
+
+    def _get_profile():
+        profile = db.session.get(UserProfile, 1)
+        if profile is None:
+            profile = UserProfile(id=1)
+            db.session.add(profile)
+            db.session.commit()
+        return profile
+
     def _food_page_context():
         entries = _todays_log_entries()
-        total_calories = sum(e.scaled("calories") or 0 for e in entries)
+        # .calories (not .scaled("calories")) -- scaled() only works for
+        # library-linked entries; photo-logged meals need the property to
+        # pick up ai_calories/manual_calories. Using .scaled() directly
+        # here was a real bug: photo-logged meals silently contributed 0
+        # to today's total.
+        total_calories = sum(e.calories or 0 for e in entries)
+
+        weigh_ins = _all_weigh_ins()
+        vacations = _all_vacation_periods()
+        latest_weight = weigh_ins[-1].weight_lbs if weigh_ins else None
+        streak = _compute_streak(weigh_ins, vacations)
+
+        profile = _get_profile()
+        calorie_target = profile.calorie_target(latest_weight) if latest_weight else None
+
         return {
             "items": _all_food_items(),
             "active_nav": "food",
             "log_entries": entries,
             "calories_today": round(total_calories) if entries else None,
+            "latest_weight": latest_weight,
+            "streak": streak,
+            "calorie_target": calorie_target,
         }
 
     @app.route("/")
@@ -1040,6 +1040,202 @@ def register_routes(app):
         if item is None:
             abort(404)
         db.session.delete(item)
+        db.session.commit()
+        return jsonify(success=True)
+
+    # -----------------------------------------------------------------
+    # Weigh-In Log
+    # -----------------------------------------------------------------
+
+    @app.route("/weigh-in")
+    def weigh_in_log():
+        weigh_ins = _all_weigh_ins()
+        vacations = _all_vacation_periods()
+        streak = _compute_streak(weigh_ins, vacations)
+        rolling_avg = _rolling_average(weigh_ins, datetime.utcnow().date()) if weigh_ins else None
+        chart = _weigh_in_chart_svg(weigh_ins)
+
+        milestones = []
+        if len(weigh_ins) == 1:
+            milestones.append("First weigh-in logged -- nice start.")
+        if streak and streak % 7 == 0:
+            milestones.append(f"{streak}-day streak!")
+        if len(weigh_ins) >= 2:
+            change = weigh_ins[-1].weight_lbs - weigh_ins[0].weight_lbs
+            if abs(change) >= 5:
+                direction = "down" if change < 0 else "up"
+                milestones.append(f"{abs(round(change, 1))} lbs {direction} since your first entry.")
+
+        return render_template(
+            "weigh_in.html",
+            active_nav="weigh_in",
+            weigh_ins=list(reversed(weigh_ins)),
+            streak=streak,
+            rolling_avg=round(rolling_avg, 1) if rolling_avg is not None else None,
+            chart=chart,
+            milestones=milestones,
+        )
+
+    @app.route("/weigh-in/add", methods=["POST"])
+    def weigh_in_add():
+        payload = request.get_json(silent=True) or {}
+        try:
+            weight_lbs = float(payload.get("weight_lbs"))
+        except (TypeError, ValueError):
+            return jsonify(error="Enter a valid weight"), 400
+        if weight_lbs <= 0 or weight_lbs > 1000:
+            return jsonify(error="That doesn't look like a valid weight in lbs"), 400
+
+        notes = (payload.get("notes") or "").strip() or None
+
+        entry = WeighIn(weight_lbs=weight_lbs, notes=notes)
+        db.session.add(entry)
+        db.session.commit()
+        return jsonify(entry.to_dict()), 201
+
+    @app.route("/weigh-in/<int:entry_id>/delete", methods=["POST"])
+    def weigh_in_delete(entry_id):
+        entry = db.session.get(WeighIn, entry_id)
+        if entry is None:
+            abort(404)
+        db.session.delete(entry)
+        db.session.commit()
+        return jsonify(success=True)
+
+    # -----------------------------------------------------------------
+    # Vacation Mode
+    # -----------------------------------------------------------------
+
+    @app.route("/vacation")
+    def vacation_mode():
+        today = datetime.utcnow().date()
+        periods = _all_vacation_periods()
+        current = [p for p in periods if p.start_date <= today <= p.end_date]
+        upcoming = [p for p in periods if p.start_date > today]
+        past = [p for p in periods if p.end_date < today]
+        return render_template(
+            "vacation.html",
+            active_nav="vacation",
+            current_periods=current,
+            upcoming_periods=upcoming,
+            past_periods=list(reversed(past)),
+        )
+
+    @app.route("/vacation/add", methods=["POST"])
+    def vacation_add():
+        payload = request.get_json(silent=True) or {}
+        label = (payload.get("label") or "").strip() or "Trip"
+        try:
+            start_date = datetime.fromisoformat(payload.get("start_date")).date()
+            end_date = datetime.fromisoformat(payload.get("end_date")).date()
+        except (TypeError, ValueError):
+            return jsonify(error="Enter valid start and end dates"), 400
+        if end_date < start_date:
+            return jsonify(error="End date can't be before the start date"), 400
+
+        period = VacationPeriod(label=label, start_date=start_date, end_date=end_date)
+        db.session.add(period)
+        db.session.commit()
+        return jsonify(period.to_dict()), 201
+
+    @app.route("/vacation/<int:period_id>/delete", methods=["POST"])
+    def vacation_delete(period_id):
+        period = db.session.get(VacationPeriod, period_id)
+        if period is None:
+            abort(404)
+        db.session.delete(period)
+        db.session.commit()
+        return jsonify(success=True)
+
+    # -----------------------------------------------------------------
+    # Dashboard
+    # -----------------------------------------------------------------
+
+    @app.route("/dashboard")
+    def dashboard():
+        profile = _get_profile()
+        weigh_ins = _all_weigh_ins()
+        latest_weight = weigh_ins[-1].weight_lbs if weigh_ins else None
+        calorie_target = profile.calorie_target(latest_weight) if latest_weight else None
+
+        entries = _todays_log_entries()
+        consumed = round(sum(e.calories or 0 for e in entries)) if entries else 0
+
+        today = datetime.utcnow().date()
+        start = datetime.combine(today, datetime.min.time())
+        end = start + timedelta(days=1)
+        exercise_today = db.session.execute(
+            db.select(ExerciseEntry)
+            .filter(ExerciseEntry.logged_at >= start, ExerciseEntry.logged_at < end)
+            .order_by(ExerciseEntry.logged_at)
+        ).scalars().all()
+        burned = round(sum(e.calories_burned for e in exercise_today))
+
+        remaining = None
+        if calorie_target is not None:
+            remaining = calorie_target - consumed + burned
+
+        return render_template(
+            "dashboard.html",
+            active_nav="dashboard",
+            profile=profile,
+            activity_levels=ACTIVITY_LEVELS,
+            latest_weight=latest_weight,
+            calorie_target=calorie_target,
+            consumed=consumed,
+            burned=burned,
+            remaining=remaining,
+            exercise_today=exercise_today,
+        )
+
+    @app.route("/dashboard/profile", methods=["POST"])
+    def dashboard_profile_save():
+        payload = request.get_json(silent=True) or {}
+        profile = _get_profile()
+
+        try:
+            profile.height_in = float(payload.get("height_in")) if payload.get("height_in") else None
+            profile.age = int(payload.get("age")) if payload.get("age") else None
+        except (TypeError, ValueError):
+            return jsonify(error="Height and age must be numbers"), 400
+
+        sex = (payload.get("biological_sex") or "").strip().lower()
+        if sex not in ("male", "female"):
+            return jsonify(error="Select a biological sex -- Mifflin-St Jeor needs it"), 400
+        profile.biological_sex = sex
+
+        activity = (payload.get("activity_level") or "sedentary").strip()
+        if activity not in ACTIVITY_LEVELS:
+            return jsonify(error="Invalid activity level"), 400
+        profile.activity_level = activity
+
+        db.session.commit()
+        return jsonify(profile.to_dict())
+
+    @app.route("/exercise/add", methods=["POST"])
+    def exercise_add():
+        payload = request.get_json(silent=True) or {}
+        activity = (payload.get("activity") or "").strip()
+        if not activity:
+            return jsonify(error="Name the activity"), 400
+        try:
+            calories_burned = float(payload.get("calories_burned"))
+        except (TypeError, ValueError):
+            return jsonify(error="Enter calories burned as a number"), 400
+        if calories_burned < 0:
+            return jsonify(error="Calories burned can't be negative"), 400
+
+        entry = ExerciseEntry(activity=activity, calories_burned=calories_burned)
+        db.session.add(entry)
+        db.session.commit()
+        return jsonify(entry.to_dict()), 201
+
+    @app.route("/exercise/<int:entry_id>/delete", methods=["POST"])
+    def exercise_delete(entry_id):
+        entry = db.session.get(ExerciseEntry, entry_id)
+        if entry is None:
+            abort(404)
+        db.session.delete(entry)
         db.session.commit()
         return jsonify(success=True)
 

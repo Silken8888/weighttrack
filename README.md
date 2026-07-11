@@ -309,6 +309,66 @@ under Python 3.12.3, so added `runtime.txt` pinning the buildpack to
 `python-3.12.8` -- a mature version with known-good psycopg2 wheels.
 No code changes needed, just the version pin.
 
+## Decision: OCR removed entirely, barcode-only photo search
+
+After the chain of issues above (garbled OCR, hyphenated words silently
+breaking Open Food Facts' search, sparse duplicate entries), cut OCR out
+of the photo-search path entirely rather than continuing to patch it.
+`/food/search-photo` now only tries barcode decoding -- if no barcode is
+found or decoded, it says so plainly and points to the text search
+instead of falling back to label-reading. Also removed `tesseract-ocr`,
+`tesseract-ocr-eng`, and `libarchive13` from the `Aptfile` and
+`pytesseract` from `requirements.txt`, since nothing calls it anymore.
+Barcode decoding (`libzbar0` + its dependency chain) is untouched and
+still works exactly as before.
+
+Manual text search (typing a product name) is unaffected -- it never
+used OCR, and still has the query-cleanup and progressive-search
+fallback logic from earlier fixes. The hyphenated-word search bug found
+during this session (e.g. "Non-Dairy" or "Lactose-Free" in a query can
+zero out Open Food Facts results even when spelled correctly) is still
+present for anything typed manually with a hyphen in it -- not fixed,
+just no longer reachable via the OCR path that made it show up
+constantly.
+
+## Weigh-In Log, Dashboard, Vacation Mode -- now wired up
+
+All three nav tabs that were placeholders are real pages now.
+
+**Weigh-In Log** (`/weigh-in`): log weight in lbs + optional notes,
+7-day rolling average (not raw daily dots, per the original spec --
+those are too noisy to be useful), a hand-rolled SVG line chart (no
+charting library needed for one line), streak counter, and simple
+milestone callouts (first entry, weight change since your first entry,
+streak multiples of 7).
+
+Streak logic is vacation-aware: tested directly with a 10-day span
+that had a 2-day gap covered by a vacation period, and confirmed the
+streak correctly comes out to 10 (vacation days count as grace days
+toward the number, not just "don't break it silently") -- also tested
+that an *uncovered* gap correctly breaks the streak back down to 1,
+so the vacation exemption doesn't accidentally swallow real misses.
+
+**Dashboard** (`/dashboard`): daily calorie target via the Mifflin-St
+Jeor equation (needs height, age, biological sex from your profile, and
+your latest weigh-in for current weight), today's consumed calories,
+exercise logged (simple activity + calories-burned quick-add), and
+remaining = target - consumed + burned. Sanity-checked the formula
+output against plausible real-world ranges for both sexes before
+shipping, not just checking it ran without erroring.
+
+**Vacation Mode** (`/vacation`): add a trip (label + date range), see
+what's currently away / upcoming / past. Currently-active trips are
+called out separately with a note that the streak is protected.
+
+Also fixed a real pre-existing bug while wiring the Weight/Streak/
+Calories-Today stat cards to actual data: "Calories Today" was computing
+totals via `.scaled("calories")` directly instead of the `.calories`
+property, which meant photo-logged meals (no linked FoodItem) always
+contributed 0 regardless of their real AI-estimated or manually-adjusted
+calories. Fixed and confirmed with a real photo-logged entry that it now
+counts correctly on both the Food Library and Dashboard pages.
+
 ## Running it locally
 
 ```bash
@@ -325,15 +385,7 @@ Defaults to SQLite (`weighttrack.db`) if `DATABASE_URL` isn't set. Visit
 
 ## Not yet started
 
-- Weigh-in log (7-day rolling average chart, streaks, milestones, notes
-  field) -- also where the Weight/Streak stat cards get real data instead
-  of "Coming Soon"
-- Dashboard (Mifflin-St Jeor calorie target vs. intake/exercise) -- also
-  where "Calories Today" gets a "/ target" comparison
-- Meal photo logging (AI calorie estimate + manual adjustment) -- distinct
-  from the barcode/OCR product lookup built this round; this one's for
-  home-cooked/unpackaged meals
-- Vacation/travel mode
 - "On This Day" (Wikipedia) + Patriots RSS feed
 - USDA FoodData Central fallback (needs a free API key, not yet obtained)
-- GitHub repo + DigitalOcean App Platform deployment
+- GitHub repo + DigitalOcean App Platform deployment (in progress --
+  app is live, see deployment notes above)

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Dashboard &middot; WeighTrack{% endblock %}
+
+{% block content %}
+
+  <section class="hero">
+    <h1>Dashboard</h1>
+    <p>Your daily calorie target, from the Mifflin-St Jeor equation, against what you've actually logged today.</p>
+  </section>
+
+  <section class="stats-row">
+    <div class="stat-card">
+      <p class="stat-card__label">Target</p>
+      {% if calorie_target is not none %}
+        <p class="stat-card__value">{{ calorie_target }} <span>Cal</span></p>
+      {% else %}
+        <p class="stat-card__value stat-card__value--muted">Set Profile Below</p>
+      {% endif %}
+    </div>
+    <div class="stat-card">
+      <p class="stat-card__label">Consumed</p>
+      <p class="stat-card__value stat-card__value--coral">{{ consumed }} <span>Cal</span></p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-card__label">Remaining</p>
+      {% if remaining is not none %}
+        <p class="stat-card__value stat-card__value--teal">{{ remaining }} <span>Cal</span></p>
+      {% else %}
+        <p class="stat-card__value stat-card__value--muted">&mdash;</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="search-panel">
+    <p class="search-panel__eyebrow">Your Profile</p>
+    <form id="profile-form" class="profile-form">
+      <label>
+        Height (In)
+        <input type="number" id="profile-height" min="36" max="96" step="0.5" value="{{ profile.height_in or '' }}">
+      </label>
+      <label>
+        Age
+        <input type="number" id="profile-age" min="13" max="120" value="{{ profile.age or '' }}">
+      </label>
+      <label>
+        Biological Sex
+        <select id="profile-sex">
+          <option value="" disabled {{ 'selected' if not profile.biological_sex else '' }}>Select</option>
+          <option value="male" {{ 'selected' if profile.biological_sex == 'male' else '' }}>Male</option>
+          <option value="female" {{ 'selected' if profile.biological_sex == 'female' else '' }}>Female</option>
+        </select>
+      </label>
+      <label>
+        Activity Level
+        <select id="profile-activity">
+          {% for key, (label, factor) in activity_levels.items() %}
+            <option value="{{ key }}" {{ 'selected' if profile.activity_level == key else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="btn">Save Profile</button>
+    </form>
+    <p class="search-status" id="profile-status">
+      {% if latest_weight is none %}Log a weigh-in to enable your calorie target -- Mifflin-St Jeor needs a current weight.{% endif %}
+    </p>
+  </section>
+
+  <section class="meal-photo-panel">
+    <p class="search-panel__eyebrow">Log Exercise</p>
+    <form id="exercise-form" class="meal-photo-form">
+      <input type="text" id="exercise-activity" placeholder="e.g. 30 min walk" required>
+      <input type="number" id="exercise-calories" min="0" step="1" placeholder="Cal burned" required>
+      <button type="submit" class="btn">Log It</button>
+    </form>
+    <p class="search-status" id="exercise-status"></p>
+  </section>
+
+  <section>
+    <div class="library-header">
+      <h2>Today's Exercise</h2>
+      <span class="library-count">{{ exercise_today|length }} Entr{{ 'y' if exercise_today|length == 1 else 'ies' }}</span>
+    </div>
+    {% if exercise_today %}
+      <ul class="weigh-in-list">
+        {% for e in exercise_today %}
+          <li class="weigh-in-row">
+            <div>
+              <p class="weigh-in-row__weight">{{ e.activity }}</p>
+              <p class="weigh-in-row__date">{{ e.logged_at.strftime('%-I:%M %p') }}</p>
+            </div>
+            <div class="weigh-in-row__right">
+              <span class="timeline__cals">{{ e.calories_burned|round|int }} Cal</span>
+              <button type="button" class="timeline__remove" data-delete-exercise-id="{{ e.id }}" aria-label="Remove entry">&times;</button>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state">Nothing logged yet today.</div>
+    {% endif %}
+  </section>
+
+{% endblock %}

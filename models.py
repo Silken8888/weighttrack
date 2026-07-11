@@ -156,3 +156,119 @@ class FoodLogEntry(db.Model):
             "fat_g": self.fat_g,
             "source": "photo" if self.is_photo_logged else "library",
         }
+
+
+class WeighIn(db.Model):
+    """One weight entry. US units throughout (pounds) -- this is a body
+    weight tracker for a US-based user, unlike the nutrition figures
+    (which stay in grams because that's what real US FDA labels use)."""
+
+    __tablename__ = "weigh_ins"
+
+    id = db.Column(db.Integer, primary_key=True)
+    weight_lbs = db.Column(db.Float, nullable=False)
+    notes = db.Column(db.String(280))  # sleep/stress/alcohol context, per the original spec
+    logged_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "weight_lbs": self.weight_lbs,
+            "notes": self.notes,
+            "logged_at": self.logged_at.isoformat() if self.logged_at else None,
+        }
+
+
+class VacationPeriod(db.Model):
+    """A date range that doesn't break the weigh-in streak even without
+    an entry logged -- per the original spec, travel shouldn't zero out
+    an established streak."""
+
+    __tablename__ = "vacation_periods"
+
+    id = db.Column(db.Integer, primary_key=True)
+    label = db.Column(db.String(120))
+    start_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date, nullable=False)
+
+    def contains(self, date_):
+        return self.start_date <= date_ <= self.end_date
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "label": self.label,
+            "start_date": self.start_date.isoformat() if self.start_date else None,
+            "end_date": self.end_date.isoformat() if self.end_date else None,
+        }
+
+
+ACTIVITY_LEVELS = {
+    "sedentary": ("Sedentary", 1.2),
+    "light": ("Lightly Active", 1.375),
+    "moderate": ("Moderately Active", 1.55),
+    "active": ("Very Active", 1.725),
+    "very_active": ("Extremely Active", 1.9),
+}
+
+
+class UserProfile(db.Model):
+    """Single-row settings table -- this is a personal, single-user app,
+    so there's exactly one profile (id=1), used to compute a daily
+    calorie target via the Mifflin-St Jeor equation."""
+
+    __tablename__ = "user_profile"
+
+    id = db.Column(db.Integer, primary_key=True)
+    height_in = db.Column(db.Float)
+    age = db.Column(db.Integer)
+    biological_sex = db.Column(db.String(10))  # "male" | "female" -- Mifflin-St Jeor needs this
+    activity_level = db.Column(db.String(20), default="sedentary")
+
+    def is_complete(self):
+        return bool(self.height_in and self.age and self.biological_sex)
+
+    def calorie_target(self, weight_lbs):
+        """Mifflin-St Jeor: the standard, well-validated formula for
+        estimating daily calorie needs from body measurements. Needs
+        weight, height, age, and biological sex -- returns None if
+        anything's missing rather than guessing.
+        """
+        if not (self.is_complete() and weight_lbs):
+            return None
+        weight_kg = weight_lbs * 0.453592
+        height_cm = self.height_in * 2.54
+        if self.biological_sex == "male":
+            bmr = 10 * weight_kg + 6.25 * height_cm - 5 * self.age + 5
+        else:
+            bmr = 10 * weight_kg + 6.25 * height_cm - 5 * self.age - 161
+        _, factor = ACTIVITY_LEVELS.get(self.activity_level, ACTIVITY_LEVELS["sedentary"])
+        return round(bmr * factor)
+
+    def to_dict(self):
+        return {
+            "height_in": self.height_in,
+            "age": self.age,
+            "biological_sex": self.biological_sex,
+            "activity_level": self.activity_level,
+        }
+
+
+class ExerciseEntry(db.Model):
+    """A manually logged exercise session (activity + calories burned),
+    feeding into the Dashboard's intake-vs-target comparison."""
+
+    __tablename__ = "exercise_entries"
+
+    id = db.Column(db.Integer, primary_key=True)
+    activity = db.Column(db.String(120), nullable=False)
+    calories_burned = db.Column(db.Float, nullable=False)
+    logged_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "activity": self.activity,
+            "calories_burned": self.calories_burned,
+            "logged_at": self.logged_at.isoformat() if self.logged_at else None,
+        }
