@@ -134,6 +134,20 @@ The `pyzbar` import is wrapped in a try/except in `app.py` -- if
 just disables itself with a log warning rather than crashing the whole
 app on startup.
 
+**Second Aptfile gotcha, hit live**: `tesseract-ocr` alone wasn't enough
+-- it also needs `libarchive13` at runtime, and the Aptfile buildpack
+doesn't auto-resolve dependencies the way a normal `apt install` would
+(this is a documented limitation of Heroku-style Aptfile buildpacks,
+which DO's is a fork of: it installs literally what's listed, nothing
+those packages themselves depend on). Added `libarchive13` to the
+Aptfile. Tesseract's full dependency tree is large (dozens of shared
+libraries -- checked via `ldd`), but the rest are near-universal base
+Ubuntu libraries (libssl, libz, libcurl's own deps, etc.) almost
+certainly already present on any Ubuntu 22.04 image, so this should be
+the last one -- but if OCR still errors after this deploy with a
+different `cannot open shared object file` message, that's the pattern:
+add the named library's Ubuntu package to the Aptfile and redeploy.
+
 ## Deployment note: psycopg2-binary vs. Python 3.14
 
 Hit this live during deployment: DigitalOcean's buildpack picked Python
