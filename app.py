@@ -590,11 +590,29 @@ def _normalize_product(raw):
     }
 
 
+def _has_nutrition_data(normalized_product):
+    return normalized_product.get("calories") is not None
+
+
+def _rank_products(products):
+    """Prefer results that actually have both a photo and real nutrition
+    data. Open Food Facts is crowdsourced, so the same real-world product
+    commonly exists as multiple separate entries under different
+    barcodes with wildly different completeness -- confirmed live: a
+    Starbucks Hazelnut Latte creamer exists as two entries, one with
+    full nutrition data, one with just a photo and nothing else. Sorting
+    complete entries first means the user sees the good one before the
+    sparse one, rather than confirming whichever OFF happened to list
+    first.
+    """
+    return sorted(products, key=lambda p: (p.get("calories") is None, p.get("photo_url") is None))
+
+
 def _run_text_job(app, job):
     products_raw, query_used, error = _progressive_search(app, job["query"], job["page_size"])
     if error:
         return None, error
-    products = [_normalize_product(p) for p in products_raw]
+    products = _rank_products([_normalize_product(p) for p in products_raw])
     note = None
     if query_used != _clean_query(job["query"]):
         note = f'No match for the full text -- broadened the search to "{query_used}".'
@@ -610,11 +628,37 @@ def _run_photo_job(app, job):
         if error:
             return None, error
         if product:
-            return {
-                "results": [_normalize_product(product)],
-                "match_type": "barcode",
-                "note": f"Read barcode {barcode} off the photo.",
-            }, None
+            normalized = _normalize_product(product)
+            results = [normalized]
+            note = f"Read barcode {barcode} off the photo."
+
+            if not _has_nutrition_data(normalized):
+                # This exact barcode's OFF entry is missing nutrition
+                # data -- a real, confirmed gap in their crowdsourced
+                # data, not a bug in how this app reads it. Try a
+                # supplementary search so there's a better entry to pick
+                # from if one exists.
+                #
+                # Searching the *full* product name doesn't work here --
+                # confirmed live it just re-matches this same sparse
+                # entry by its own exact name and never surfaces a
+                # sibling. A shorter brand + first-few-words query does:
+                # confirmed live it found both this entry and a complete
+                # duplicate under a different barcode.
+                short_query = " ".join(
+                    filter(None, [normalized.get("brand"), *normalized["product_name"].split()[:3]])
+                )
+                extra_raw, _, extra_error = _progressive_search(app, short_query, 5)
+                if not extra_error and extra_raw:
+                    extras = [_normalize_product(p) for p in extra_raw if p.get("code") != barcode]
+                    if extras:
+                        results = _rank_products(results + extras)
+                        note += (
+                            " That exact listing is missing nutrition data on Open Food Facts -- "
+                            "found a more complete match too, ranked first below."
+                        )
+
+            return {"results": results, "match_type": "barcode", "note": note}, None
         # Decoded a barcode, but Open Food Facts has no record of it --
         # fall through to OCR rather than dead-ending.
 
@@ -630,7 +674,7 @@ def _run_photo_job(app, job):
     products_raw, query_used, error = _progressive_search(app, guess, job["page_size"])
     if error:
         return None, error
-    products = [_normalize_product(p) for p in products_raw]
+    products = _rank_products([_normalize_product(p) for p in products_raw])
     note = f'Read "{guess}" off the photo' + (
         f' -- searched "{query_used}".' if query_used != _clean_query(guess) else "."
     )

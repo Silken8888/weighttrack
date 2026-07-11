@@ -235,6 +235,13 @@
       basis.textContent = "per 100g -- confirm a serving size below";
       info.appendChild(basis);
     }
+
+    if (product.calories == null) {
+      const warning = document.createElement("span");
+      warning.className = "result-row__basis";
+      warning.textContent = "No nutrition data on Open Food Facts for this listing";
+      info.appendChild(warning);
+    }
     li.appendChild(info);
 
     const openBtn = document.createElement("button");

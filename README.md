@@ -261,6 +261,41 @@ output the garbage falls, unlike the previous end-trimming approach.
 Re-confirmed end-to-end against the real photo after this change: 4.36
 seconds, exact correct product and barcode as the first result.
 
+**Eighth issue: Open Food Facts had two entries for the same real
+product, and the app confirmed the wrong one.** A different photo
+(Starbucks Hazelnut Latte creamer) matched a real barcode with a real
+photo but zero nutrition data. Confirmed live this wasn't a bug in how
+this app reads OFF's response -- that exact barcode genuinely has no
+nutriments on Open Food Facts. But a *second*, more complete entry for
+the same product exists under a different barcode, and the app had no
+way to know to prefer it.
+
+Fixed two ways: (1) `_rank_products()` sorts every result list so
+entries with both a photo and real nutrition data come first, instead
+of confirming whichever OFF happened to return first. (2) When a
+scanned barcode's exact entry is missing nutrition data, the app now
+runs a supplementary search to look for a more complete duplicate --
+searching the *full* product name doesn't work here (confirmed live it
+just re-matches the same sparse entry by its own exact name), so it
+uses a shorter brand + first-few-words query instead, which confirmed
+live surfaces both entries. Re-tested against the real barcode: the
+complete duplicate (30 cal) now ranks first, with a note explaining
+what happened, instead of silently handing over the sparse one.
+
+Also bumped both search-result and library-card thumbnail sizes
+(48px -> 96px photos, library cards ~45% wider) since they were too
+small to evaluate a result at a glance.
+
+One thing worth being upfront about rather than promising a fix for:
+Open Food Facts is entirely crowdsourced, so there's no way to filter
+for "official stock photos only" -- every image on it was uploaded by
+some contributor, brand or random shopper, with no field distinguishing
+one from the other. Popular products tend to have decent photos since
+they get more contributions; less common variants sometimes only have
+someone's phone snapshot. The ranking fix surfaces the *better*
+available entry when duplicates exist, but can't guarantee photo
+quality on entries where only one exists.
+
 ## Deployment note: psycopg2-binary vs. Python 3.14
 
 Hit this live during deployment: DigitalOcean's buildpack picked Python

@@ -341,7 +341,7 @@ button { font-family: inherit; cursor: pointer; }
 
 .result-row {
   display: grid;
-  grid-template-columns: 48px 1fr auto;
+  grid-template-columns: 96px 1fr auto;
   gap: 12px;
   align-items: center;
   padding: 10px;
@@ -350,8 +350,8 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 .result-row__photo {
-  width: 48px;
-  height: 48px;
+  width: 96px;
+  height: 96px;
   object-fit: cover;
   border-radius: var(--radius-sm);
   background: var(--surface-3);
@@ -630,7 +630,7 @@ button { font-family: inherit; cursor: pointer; }
 
 .food-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
   padding: 0;
   list-style: none;
@@ -908,7 +908,7 @@ button { font-family: inherit; cursor: pointer; }
   .search-form { flex-direction: column; }
   .search-form .btn { width: 100%; }
   .result-row { grid-template-columns: 40px 1fr; }
-  .food-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .food-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
 }
 
 @media (max-width: 420px) {
