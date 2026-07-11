@@ -31,7 +31,7 @@ class Config:
     OFF_USER_AGENT = "WeighTrack/1.0 (personal health tracker; contact: weighttrack-app@example.com)"
     OFF_RETRY_COUNT = 2
     OFF_RETRY_DELAY_SECONDS = 1.5
-    OFF_REQUEST_TIMEOUT_SECONDS = 8
+    OFF_REQUEST_TIMEOUT_SECONDS = 5
 
     # Photo-based product lookup (barcode decode, OCR fallback)
     MAX_PHOTO_BYTES = 8 * 1024 * 1024  # 8 MB

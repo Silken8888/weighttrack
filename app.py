@@ -127,11 +127,15 @@ def _prune_old_jobs(ttl_seconds):
             del _jobs[jid]
 
 
-def _fetch_from_open_food_facts(app, query, page_size):
+def _fetch_from_open_food_facts(app, query, page_size, retry_count_override=None):
     """One search attempt against Open Food Facts, with one retry on the
     transient 502/503s seen during testing (confirmed to clear within
     seconds). Always sends a real User-Agent -- Open Food Facts throttles
     or rejects requests without one.
+
+    retry_count_override lets a caller (namely _progressive_search) run
+    a candidate with fewer retries than the configured default -- used
+    to bound total worst-case time across a multi-candidate cascade.
     """
     headers = {"User-Agent": app.config["OFF_USER_AGENT"]}
     params = {
@@ -142,7 +146,8 @@ def _fetch_from_open_food_facts(app, query, page_size):
         "page_size": page_size,
     }
 
-    attempts = app.config["OFF_RETRY_COUNT"] + 1
+    retry_count = app.config["OFF_RETRY_COUNT"] if retry_count_override is None else retry_count_override
+    attempts = retry_count + 1
     last_error = None
 
     for attempt in range(attempts):
@@ -155,13 +160,15 @@ def _fetch_from_open_food_facts(app, query, page_size):
             )
             if resp.status_code in (502, 503):
                 last_error = f"Open Food Facts returned {resp.status_code}"
-                time.sleep(app.config["OFF_RETRY_DELAY_SECONDS"])
+                if attempt < attempts - 1:
+                    time.sleep(app.config["OFF_RETRY_DELAY_SECONDS"])
                 continue
             resp.raise_for_status()
             return resp.json(), None
         except requests.RequestException as exc:
             last_error = str(exc)
-            time.sleep(app.config["OFF_RETRY_DELAY_SECONDS"])
+            if attempt < attempts - 1:
+                time.sleep(app.config["OFF_RETRY_DELAY_SECONDS"])
             continue
 
     return None, last_error or "Open Food Facts request failed"
@@ -196,15 +203,20 @@ def _progressive_search(app, raw_query, page_size):
     empty, retry with progressively fewer trailing words. Confirmed live:
     "Starbucks Caramel Macchiato Non-Dairy Creamer" -> 0 results, but
     "Starbucks Caramel Macchiato" -> 58, including the exact product.
-    Stops at the first non-empty result set, floors out at 2 words so it
-    never collapses to a single generic brand name.
+    Stops at the first non-empty result set.
 
-    A transient error on one candidate (a 502/503 that outlasted its own
-    retries) doesn't abandon the whole search -- it moves on to the next,
-    shorter candidate. Confirmed this mattered live: the longest
-    candidate hit a transient 503 while a shorter candidate from the same
-    cascade would have gone through fine moments later. Only returns an
-    error if every candidate in the cascade failed.
+    Two things bound total worst-case time, both hit live: only the
+    first (full-length, most-likely-correct) candidate gets the
+    retry-on-502/503 treatment from _fetch_from_open_food_facts;
+    fallback candidates get exactly one attempt each and move on
+    immediately on failure, since with several fallback candidates
+    available they act as their own retries via query variation. And the
+    number of candidates tried is capped (not one-word-at-a-time down to
+    the floor) -- a long OCR-derived guess (up to 12 words) could
+    otherwise generate 10+ candidates, which combined with per-candidate
+    retries pushed total processing time well past the client's ~20s
+    poll timeout. Confirmed this exact failure live and fixed it here
+    rather than just telling the user to wait longer.
 
     Returns (products_raw, query_used, error).
     """
@@ -213,16 +225,34 @@ def _progressive_search(app, raw_query, page_size):
     if not words:
         return [], cleaned, None
 
+    # Full length, then a handful of shorter candidates down to a floor
+    # of 2 words -- capped at MAX_CANDIDATES total regardless of how many
+    # words the query started with.
+    MAX_CANDIDATES = 4
+    word_counts = [len(words)]
+    if len(words) > 2:
+        step = max(1, (len(words) - 2) // (MAX_CANDIDATES - 1)) if MAX_CANDIDATES > 1 else len(words) - 2
+        wc = len(words) - step
+        while wc >= 2 and len(word_counts) < MAX_CANDIDATES:
+            word_counts.append(wc)
+            wc -= step
+        if word_counts[-1] != 2 and len(word_counts) < MAX_CANDIDATES:
+            word_counts.append(2)
+
     tried = []
     last_error = None
     got_clean_response = False
-    for word_count in range(len(words), 1, -1):
+    for i, word_count in enumerate(word_counts):
         candidate = " ".join(words[:word_count])
         if candidate in tried:
             continue
         tried.append(candidate)
 
-        data, error = _fetch_from_open_food_facts(app, candidate, page_size)
+        # Only the first (longest/most likely correct) candidate gets
+        # retried on a transient error -- fallback candidates fail fast
+        # and move on, since trying the next candidate IS the retry.
+        retry_override = None if i == 0 else 0
+        data, error = _fetch_from_open_food_facts(app, candidate, page_size, retry_count_override=retry_override)
         if error:
             last_error = error
             continue

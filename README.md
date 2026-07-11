@@ -215,6 +215,28 @@ End-to-end confirmed against the actual uploaded photo after all of the
 above: correctly identifies the exact product, first result, matching
 barcode, real photo included.
 
+**Sixth issue: I broke it myself with the "resilience" fix.** Bumping
+`OFF_RETRY_COUNT` and making `_progressive_search` keep trying shorter
+candidates after a failure (issue five, above) had a real side effect I
+didn't account for: for a long OCR-derived query (up to 12 words), the
+cascade could generate 10+ candidate queries, each retried up to 3
+times -- worst case, dozens of HTTP attempts, easily exceeding the
+client's ~20s poll timeout ("This is taking longer than expected").
+Hit live.
+
+Fixed by decoupling two things that were multiplying against each
+other: only the first (longest, most-likely-correct) candidate gets
+retried on a transient error; fallback candidates get one fast attempt
+each and move on immediately, since trying the next candidate already
+functions as a retry. Also capped the cascade at 4 candidates total
+(using bigger step sizes) instead of one-word-at-a-time down to the
+floor. Measured worst case directly (every request failing, a 12-word
+query): **3.0 seconds, 6 total HTTP calls** -- down from a worst case
+that could previously run past a minute. Bumped the client-side poll
+timeout to ~36s as an extra safety margin on top of that. Re-confirmed
+the real photo still finds the correct product afterward (8.75s,
+correct brand/product, real barcode).
+
 ## Deployment note: psycopg2-binary vs. Python 3.14
 
 Hit this live during deployment: DigitalOcean's buildpack picked Python

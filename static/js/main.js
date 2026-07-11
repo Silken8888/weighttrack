@@ -156,7 +156,7 @@
   }
 
   function pollSearch(jobId, statusEl, resultsEl, attempt) {
-    const MAX_ATTEMPTS = 30; // ~ 20s at 650ms/attempt
+    const MAX_ATTEMPTS = 55; // ~ 36s at 650ms/attempt -- above the search cascade's worst-case bound
 
     fetch("/food/search/status/" + jobId)
       .then(function (res) { return res.json(); })
@@ -536,7 +536,7 @@
   }
 
   function pollMealPhoto(jobId, statusEl, defaultStatusText, attempt) {
-    const MAX_ATTEMPTS = 30;
+    const MAX_ATTEMPTS = 55; // ~ 36s, same margin as pollSearch
 
     fetch("/food/search/status/" + jobId)
       .then(function (res) { return res.json(); })
