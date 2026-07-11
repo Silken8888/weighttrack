@@ -129,6 +129,24 @@ documented DO App Platform mechanism -- the `heroku-buildpack-apt`
 buildpack installs it during the build step) listing both packages. No
 other action needed as long as the `Aptfile` deploys alongside the app.
 
+The `pyzbar` import is wrapped in a try/except in `app.py` -- if
+`libzbar0` isn't reachable at runtime for any reason, barcode decoding
+just disables itself with a log warning rather than crashing the whole
+app on startup.
+
+## Deployment note: psycopg2-binary vs. Python 3.14
+
+Hit this live during deployment: DigitalOcean's buildpack picked Python
+3.14 for the app, and `psycopg2-binary==2.9.9` fails to import under it
+with `undefined symbol: _PyInterpreterState_Get` -- a known, documented
+upstream incompatibility between psycopg2's compiled C extension and
+newer CPython internals (confirmed via psycopg2's own GitHub issues,
+first reported at Python 3.13 and still unresolved at 3.14). Confirmed
+locally that the exact same `psycopg2-binary==2.9.9` imports cleanly
+under Python 3.12.3, so added `runtime.txt` pinning the buildpack to
+`python-3.12.8` -- a mature version with known-good psycopg2 wheels.
+No code changes needed, just the version pin.
+
 ## Running it locally
 
 ```bash
