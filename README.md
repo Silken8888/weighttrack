@@ -134,19 +134,30 @@ The `pyzbar` import is wrapped in a try/except in `app.py` -- if
 just disables itself with a log warning rather than crashing the whole
 app on startup.
 
-**Second Aptfile gotcha, hit live**: `tesseract-ocr` alone wasn't enough
--- it also needs `libarchive13` at runtime, and the Aptfile buildpack
-doesn't auto-resolve dependencies the way a normal `apt install` would
-(this is a documented limitation of Heroku-style Aptfile buildpacks,
-which DO's is a fork of: it installs literally what's listed, nothing
-those packages themselves depend on). Added `libarchive13` to the
-Aptfile. Tesseract's full dependency tree is large (dozens of shared
-libraries -- checked via `ldd`), but the rest are near-universal base
-Ubuntu libraries (libssl, libz, libcurl's own deps, etc.) almost
-certainly already present on any Ubuntu 22.04 image, so this should be
-the last one -- but if OCR still errors after this deploy with a
-different `cannot open shared object file` message, that's the pattern:
-add the named library's Ubuntu package to the Aptfile and redeploy.
+**Full fix, done properly this time**: rather than patching one missing
+library at a time as errors surfaced, ran `ldd` against the actual
+compiled `tesseract` and `libzbar.so` binaries to get their complete
+real dependency lists, then added every non-trivial one to the Aptfile
+in a single pass:
+
+- `tesseract-ocr-eng` -- the actual language data (`eng.traineddata`).
+  The base `tesseract-ocr` package is just the engine; without this it
+  runs but has nothing to read text with (`Error opening data file
+  .../eng.traineddata`, the second error hit live).
+- `libarchive13` -- tesseract's archive-format dependency (first error
+  hit live).
+- `libdbus-1-3`, `libv4l-0`, `libx11-6`, `libjpeg-turbo8`, `libsystemd0`,
+  `libxcb1`, `libcap2`, `libgcrypt20`, `libxau6`, `libxdmcp6`,
+  `libgpg-error0`, `libbsd0`, `libmd0` -- zbar's full runtime dependency
+  chain (it's compiled with optional camera/X11/D-Bus support baked in,
+  even though this app only ever decodes still images). Confirmed via
+  `ldd` that these are genuinely linked, not guessed.
+
+Root cause underlying all of this: DigitalOcean's Aptfile mechanism
+(`heroku-buildpack-apt`) installs exactly the packages you list and
+nothing those packages themselves depend on -- unlike a normal
+`apt install`, it does not resolve dependencies. Every package in the
+tree above had to be named explicitly.
 
 ## Deployment note: psycopg2-binary vs. Python 3.14
 
