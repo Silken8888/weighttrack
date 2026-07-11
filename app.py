@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 import requests
 from flask import Flask, render_template, request, jsonify, abort
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 import pytesseract
 
 # pyzbar loads the libzbar0 shared library via ctypes at import time. If
@@ -199,6 +199,13 @@ def _progressive_search(app, raw_query, page_size):
     Stops at the first non-empty result set, floors out at 2 words so it
     never collapses to a single generic brand name.
 
+    A transient error on one candidate (a 502/503 that outlasted its own
+    retries) doesn't abandon the whole search -- it moves on to the next,
+    shorter candidate. Confirmed this mattered live: the longest
+    candidate hit a transient 503 while a shorter candidate from the same
+    cascade would have gone through fine moments later. Only returns an
+    error if every candidate in the cascade failed.
+
     Returns (products_raw, query_used, error).
     """
     cleaned = _clean_query(raw_query)
@@ -207,6 +214,8 @@ def _progressive_search(app, raw_query, page_size):
         return [], cleaned, None
 
     tried = []
+    last_error = None
+    got_clean_response = False
     for word_count in range(len(words), 1, -1):
         candidate = " ".join(words[:word_count])
         if candidate in tried:
@@ -215,10 +224,19 @@ def _progressive_search(app, raw_query, page_size):
 
         data, error = _fetch_from_open_food_facts(app, candidate, page_size)
         if error:
-            return None, candidate, error
+            last_error = error
+            continue
+        got_clean_response = True
         products = data.get("products", [])
         if products:
             return products, candidate, None
+
+    if not got_clean_response:
+        # Every single candidate failed -- the search never actually
+        # completed, so "no matches" would be a misleading thing to tell
+        # the user (it looks like the product isn't in the database, when
+        # really Open Food Facts just never returned a clean response).
+        return None, tried[-1] if tried else cleaned, last_error
 
     return [], cleaned, None
 
@@ -300,6 +318,11 @@ def _ocr_text_from_bytes(image_bytes):
     Returns "" immediately if tessdata wasn't found at startup -- see
     _locate_and_configure_tessdata -- rather than letting a raw
     tesseract error reach the user.
+
+    Grayscale + autocontrast before OCR -- confirmed against a real
+    product photo that default color-image OCR completely missed
+    lower-contrast text (white-on-orange "Caramel Macchiato" band) that
+    this preprocessing recovers cleanly.
     """
     if not OCR_AVAILABLE:
         return ""
@@ -309,20 +332,44 @@ def _ocr_text_from_bytes(image_bytes):
         img.load()
     except UnidentifiedImageError:
         return ""
-    return pytesseract.image_to_string(img)
+
+    img = img.convert("RGB")
+    img.thumbnail((1600, 1600))
+    gray = ImageOps.grayscale(img)
+    gray = ImageOps.autocontrast(gray, cutoff=2)
+    return pytesseract.image_to_string(gray)
 
 
 def _best_guess_from_ocr(raw_text):
-    """OCR off a label is noisy -- multiple lines, stray symbols, all
-    caps. Take the longest alphabetic-ish line as the best single guess
-    at the product name, since packaging usually gives the product name
-    its own prominent line.
+    """OCR off a label is noisy, and a product's name is often split
+    across several short lines (brand on one line, flavor on the next,
+    product type on a third) rather than sitting in one long line.
+    Picking the single longest line -- the original approach -- turned
+    out to be a real bug: confirmed against a real product photo where
+    the longest OCR'd line was garbled serving-size text ("CAAT 55
+    SERVINGS"), while the actual product name ("Caramel Macchiato
+    Almondmilk & Oatmilk Creamer") was split across four separate
+    shorter lines and never got picked.
+
+    Instead: keep every line with enough alphabetic content to plausibly
+    be real text, drop repeated lines (OCR sometimes reads the same text
+    twice), and join what's left into one combined query. _clean_query
+    strips obvious trailing quantities, and _progressive_search's
+    trailing-word cascade handles the rest of the noise -- confirmed
+    end-to-end against a real photo that this combined approach finds
+    the exact correct product where the old one-line guess found nothing.
     """
-    lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
-    candidates = [ln for ln in lines if sum(c.isalpha() for c in ln) >= 3]
-    if not candidates:
-        return ""
-    return max(candidates, key=len)
+    lines = [ln.strip(" ,.()[]|\"'") for ln in raw_text.splitlines()]
+    cleaned, seen = [], set()
+    for ln in lines:
+        if sum(c.isalpha() for c in ln) < 3:
+            continue
+        key = ln.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(ln)
+    return " ".join(cleaned[:12])
 
 
 def _upload_to_bunny(app, image_bytes, filename):

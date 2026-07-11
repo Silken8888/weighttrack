@@ -185,6 +185,36 @@ raw tesseract error reaching the user -- tested this exact scenario
 directly (forced `OCR_AVAILABLE = False`) and confirmed the whole
 photo-search flow still completes cleanly instead of erroring.
 
+**Fifth issue: OCR accuracy on a real product photo.** Once the
+infrastructure was actually working, the OCR itself was reading garbage
+off a real Starbucks product photo. Root-caused with the real uploaded
+file, not a synthetic test:
+
+- The old `_best_guess_from_ocr` picked the single *longest* OCR'd line
+  as its one guess. On the real photo, the longest line was garbled
+  serving-size text ("CAAT 55 SERVINGS"), while the actual product name
+  ("Caramel Macchiato Almondmilk & Oatmilk Creamer") was split across
+  four separate *shorter* lines and never got picked. Fixed by combining
+  every plausible line into one query instead of picking just one, then
+  letting `_progressive_search`'s existing trailing-word cascade narrow
+  it down.
+- Default OCR (no preprocessing) completely missed lower-contrast label
+  text (white text on an orange band). Grayscale + autocontrast before
+  OCR recovered it -- confirmed directly against the real file: without
+  preprocessing, "Caramel Macchiato" never appeared in the OCR output at
+  all; with it, both "Caramel" and "Macchiato" read cleanly.
+- `_progressive_search` had a real bug: a transient error on its first
+  (longest) candidate query aborted the entire search rather than
+  falling back to shorter candidates. Fixed so it only reports an error
+  if every candidate in the cascade failed, and distinguishes that from
+  a genuine "no matches" (which requires at least one candidate to have
+  gotten a clean response) -- otherwise a real search failure could have
+  been misreported as "this product isn't in the database."
+
+End-to-end confirmed against the actual uploaded photo after all of the
+above: correctly identifies the exact product, first result, matching
+barcode, real photo included.
+
 ## Deployment note: psycopg2-binary vs. Python 3.14
 
 Hit this live during deployment: DigitalOcean's buildpack picked Python
