@@ -237,6 +237,30 @@ timeout to ~36s as an extra safety margin on top of that. Re-confirmed
 the real photo still finds the correct product afterward (8.75s,
 correct brand/product, real barcode).
 
+**Seventh issue: line-based garbage filtering wasn't enough.** A
+different real photo produced OCR output like `"Bais ProLcoueL ry
+NON-DAIRY ALMONDMILK & OATMILK CREAMER ETT PO reo MAT aE na"` -- real
+text sandwiched between garbage on *both* sides. The line-based
+filtering from issue five only trimmed candidates from the end of the
+string (via `_progressive_search`'s trailing-word cascade), so every
+candidate still dragged the leading garbage along and never isolated
+the real text.
+
+Root cause: guessing which OCR lines are "real" from surface heuristics
+(length, alphabetic content) doesn't work when noise can appear
+anywhere. Fixed properly by using Tesseract's own per-word confidence
+score instead of guessing -- switched from `image_to_string` to
+`image_to_data`, which returns a confidence value (0-100) per detected
+word, and drop anything under 60. Confirmed directly against the real
+photo that this actually separates signal from noise: real label words
+scored 80-96 (CARAMEL 96, MACCHIATO 90, ALMONDMILK 91, OATMILK 89,
+CREAMER 96, NON-DAIRY 91), while stray punctuation and misread
+fragments scored 0-30. This works regardless of *where* in the OCR
+output the garbage falls, unlike the previous end-trimming approach.
+
+Re-confirmed end-to-end against the real photo after this change: 4.36
+seconds, exact correct product and barcode as the first result.
+
 ## Deployment note: psycopg2-binary vs. Python 3.14
 
 Hit this live during deployment: DigitalOcean's buildpack picked Python

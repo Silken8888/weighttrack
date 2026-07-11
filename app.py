@@ -353,6 +353,15 @@ def _ocr_text_from_bytes(image_bytes):
     product photo that default color-image OCR completely missed
     lower-contrast text (white-on-orange "Caramel Macchiato" band) that
     this preprocessing recovers cleanly.
+
+    Uses image_to_data (per-word confidence) rather than image_to_string
+    (plain text), and drops low-confidence words. This replaced an
+    earlier line-based approach that picked up garbage sitting anywhere
+    in the OCR output -- confirmed live that noise isn't reliably
+    isolated to the start or end of the text, so trimming from one end
+    doesn't help; filtering by Tesseract's own confidence score does.
+    Confirmed on a real photo: real label words scored 80-96, stray
+    punctuation and misread fragments scored 0-30.
     """
     if not OCR_AVAILABLE:
         return ""
@@ -367,39 +376,36 @@ def _ocr_text_from_bytes(image_bytes):
     img.thumbnail((1600, 1600))
     gray = ImageOps.grayscale(img)
     gray = ImageOps.autocontrast(gray, cutoff=2)
-    return pytesseract.image_to_string(gray)
+
+    data = pytesseract.image_to_data(gray, output_type=pytesseract.Output.DICT)
+    words = []
+    for word, conf in zip(data.get("text", []), data.get("conf", [])):
+        word = word.strip()
+        if not word:
+            continue
+        try:
+            if float(conf) < 60:
+                continue
+        except (TypeError, ValueError):
+            continue
+        words.append(word)
+    return " ".join(words)
 
 
-def _best_guess_from_ocr(raw_text):
-    """OCR off a label is noisy, and a product's name is often split
-    across several short lines (brand on one line, flavor on the next,
-    product type on a third) rather than sitting in one long line.
-    Picking the single longest line -- the original approach -- turned
-    out to be a real bug: confirmed against a real product photo where
-    the longest OCR'd line was garbled serving-size text ("CAAT 55
-    SERVINGS"), while the actual product name ("Caramel Macchiato
-    Almondmilk & Oatmilk Creamer") was split across four separate
-    shorter lines and never got picked.
-
-    Instead: keep every line with enough alphabetic content to plausibly
-    be real text, drop repeated lines (OCR sometimes reads the same text
-    twice), and join what's left into one combined query. _clean_query
-    strips obvious trailing quantities, and _progressive_search's
-    trailing-word cascade handles the rest of the noise -- confirmed
-    end-to-end against a real photo that this combined approach finds
-    the exact correct product where the old one-line guess found nothing.
+def _best_guess_from_ocr(filtered_text):
+    """The input here is already confidence-filtered (see
+    _ocr_text_from_bytes) -- this just dedupes immediate repeats (a
+    product's name sometimes appears twice on the same label, e.g. once
+    in a banner and once in the body text) and caps total length so the
+    search cascade has a bounded number of candidates to try.
     """
-    lines = [ln.strip(" ,.()[]|\"'") for ln in raw_text.splitlines()]
-    cleaned, seen = [], set()
-    for ln in lines:
-        if sum(c.isalpha() for c in ln) < 3:
+    words = filtered_text.split()
+    deduped = []
+    for w in words:
+        if deduped and deduped[-1].lower() == w.lower():
             continue
-        key = ln.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        cleaned.append(ln)
-    return " ".join(cleaned[:12])
+        deduped.append(w)
+    return " ".join(deduped[:15])
 
 
 def _upload_to_bunny(app, image_bytes, filename):
