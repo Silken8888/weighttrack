@@ -2365,7 +2365,7 @@ def register_routes(app):
         timeline_history = [
             {
                 "date": day,
-                "label": "Today" if day == today else day.strftime("%A, %b %-d"),
+                "label": f'Today \u00b7 {day.strftime("%a, %b %-d")}' if day == today else day.strftime("%A, %b %-d"),
                 "entries": food_by_day[day],
                 "total": round(sum(e.calories or 0 for e in food_by_day[day])),
             }
@@ -2409,7 +2409,7 @@ def register_routes(app):
         exercise_history = [
             {
                 "date": day,
-                "label": "Today" if day == today else day.strftime("%a, %b %-d"),
+                "label": f'Today \u00b7 {day.strftime("%a, %b %-d")}' if day == today else day.strftime("%a, %b %-d"),
                 "entries": exercise_by_day[day],
                 "total": round(sum(e.calories_burned for e in exercise_by_day[day])),
             }

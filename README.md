@@ -986,6 +986,37 @@ Confirmed the "Today" group's total matches the top-level "Cal Today"
 stat exactly, and confirmed entries actually land under the correct day
 header even with zero timezone cookie support.
 
+## "Today" header still showing wrong entries: old data, not a new bug
+
+Re-audited every single place a `FoodLogEntry` gets created (four call
+sites) line by line before touching anything else. All four already
+use the correct local-timezone-aware logic from earlier fixes -- no
+remaining UTC-comparison bug found in creation or in the day-grouping
+display logic, which was independently re-verified again too.
+
+Proved directly why the problem can still show up anyway: an entry
+created *before* today's timezone fixes landed -- which describes
+everything logged during tonight's extensive testing -- was stamped
+with a genuinely wrong `logged_at` value at the moment it was created.
+Fixing the *display* logic afterward can't retroactively repair a
+timestamp that was already wrong when it was written to the database;
+the grouping code can only correctly bucket whatever's actually stored,
+and for old rows, what's stored is still wrong. Confirmed this
+mechanically: seeded a row with a deliberately bad timestamp alongside
+a freshly-created correct one, and both landed in the same "Today"
+group, because the display code has no way to know one of them was
+wrong at creation.
+
+Added a concrete way to verify this without taking it on faith: the
+"Today" header now also shows the actual calendar date next to it
+(`Today · Sun, Jul 12`), so it's directly checkable against a real
+calendar rather than trusting a generic label. Old, mistimed entries
+from before the fix can be cleaned up two ways now that they're clearly
+labeled: delete and re-log (new entries use the corrected logic), or
+ask the assistant directly to move a specific entry to the right time
+-- the date/time correction capability built earlier tonight applies
+here too.
+
 ## Running it locally
 
 ```bash
