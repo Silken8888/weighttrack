@@ -716,32 +716,67 @@ def _run_photo_job(app, job):
 
 def _run_exercise_estimate(app, job):
     """Estimate calories burned for a described activity ('half a mile
-    walk'), personalized against the user's actual profile -- weight in
-    particular is a real, physiologically meaningful factor in exercise
-    calorie burn (a heavier person burns more calories for the same
-    walk), not just a nicety. Creates the ExerciseEntry directly with
-    the AI's estimate, same pattern as the meal-photo calorie guess.
+    walk'), personalized against the user's actual weight -- weight is
+    a real, physiologically meaningful factor in exercise calorie burn
+    (a heavier person burns more calories for the same walk), not a
+    nicety.
+
+    Confirmed live that asking Claude to produce the final calorie
+    number directly (i.e. do "MET x weight_kg x duration_hours" as one
+    mental-math step) under-shot the standard formula by roughly half
+    for a user at higher body weight -- LLM arithmetic on real,
+    non-round numbers isn't reliable even when the method is right.
+    Fixed by splitting the task: Claude identifies the MET value and
+    duration for the described activity (language understanding, which
+    it's actually good at), and the app does the multiplication itself
+    against the user's real weight, deterministically.
+
+    Also parses the date from what they said ("yesterday I walked a
+    mile") instead of always stamping it as right now -- same date
+    handling the food agent already has, applied here too so exercise
+    entries land on the correct day instead of always today.
     """
     activity_text = job["activity"]
+    today = datetime.utcnow().date().isoformat()
 
     with app.app_context():
-        profile = db.session.get(UserProfile, 1)
         weigh_ins = db.session.execute(
             db.select(WeighIn).order_by(WeighIn.logged_at.desc()).limit(1)
         ).scalars().all()
         latest_weight = weigh_ins[0].weight_lbs if weigh_ins else None
 
-        profile_bits = []
-        if latest_weight is not None:
-            profile_bits.append(f"weight {latest_weight} lbs")
-        if profile and profile.age:
-            profile_bits.append(f"age {profile.age}")
-        if profile and profile.biological_sex:
-            profile_bits.append(f"biological sex {profile.biological_sex}")
-        if profile and profile.activity_level:
-            label = ACTIVITY_LEVELS.get(profile.activity_level, (profile.activity_level,))[0]
-            profile_bits.append(f"general activity level {label}")
-        profile_context = ", ".join(profile_bits) if profile_bits else "not provided -- use general averages"
+    weight_kg = latest_weight * 0.453592 if latest_weight else None
+
+    if weight_kg is not None:
+        instruction = (
+            "Estimate an appropriate MET (metabolic equivalent) value for "
+            "this activity, and the duration in hours -- infer duration "
+            "from what's stated (a distance + typical pace, a stated "
+            "time, or a reasonable default for the activity if neither "
+            "is given). Don't compute calories yourself; the app will "
+            "multiply MET x weight_kg x duration_hours using the real "
+            "weight, so just return accurate met_value and "
+            "duration_hours."
+        )
+        schema = (
+            '{"met_value": <number>, "duration_hours": <number>, "date": '
+            '"YYYY-MM-DD", "note": "<short note on any assumption you '
+            'made, e.g. pace or duration, or empty string>"}'
+        )
+    else:
+        # No weight on file at all -- can't do the real calculation, so
+        # fall back to asking for calories directly rather than blocking
+        # the feature entirely.
+        instruction = (
+            "No weight is on file, so give your single best rough "
+            "calorie estimate directly for this activity using general "
+            "averages."
+        )
+        schema = (
+            '{"calories": <integer>, "date": "YYYY-MM-DD", "note": '
+            '"<short note that this is a general estimate since no '
+            'weight is on file, plus any other assumption>"}'
+        )
 
     payload = {
         "model": app.config["ANTHROPIC_MEAL_MODEL"],
@@ -749,22 +784,14 @@ def _run_exercise_estimate(app, job):
         "messages": [{
             "role": "user",
             "content": (
-                "Estimate calories burned for a described exercise activity, "
-                "for a personal fitness tracker -- not medical advice, a "
-                "single best rough estimate. Body weight is the single "
-                "biggest factor in exercise calorie burn (heavier people "
-                "burn more for the same activity), so use it directly -- a "
-                "standard MET-based approach (calories \u2248 MET x weight_kg "
-                "x duration_hours) is a reasonable method if you can infer a "
-                "duration; if duration or pace isn't stated, use a typical "
-                "reasonable assumption for that activity and say so briefly "
-                "in the note.\n\n"
-                f"User's profile: {profile_context}.\n\n"
+                f"Today's date is {today}. Estimate calories burned for a "
+                "described exercise activity, for a personal fitness "
+                f"tracker -- not medical advice. {instruction} Infer the "
+                "date it happened from what they say (\"today\", "
+                "\"yesterday\", unstated -> today) as an ISO date.\n\n"
                 f'Activity described: "{activity_text}"\n\n'
-                "Respond with ONLY a JSON object, no markdown fences, no "
-                'other text: {"calories": <integer>, "note": "<short note '
-                'on any assumption you made, e.g. pace or duration, or an '
-                'empty string if none needed>"}'
+                f"Respond with ONLY a JSON object, no markdown fences, no "
+                f"other text: {schema}"
             ),
         }],
     }
@@ -776,18 +803,36 @@ def _run_exercise_estimate(app, job):
     raw_text = _extract_claude_text(data)
     try:
         parsed = _parse_json_from_claude(raw_text)
-        calories = int(parsed["calories"]) if parsed.get("calories") is not None else None
-        note = (parsed.get("note") or "").strip() or None
-    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
-        match = re.search(r"\d+", raw_text)
-        calories = int(match.group()) if match else None
-        note = None
+    except json.JSONDecodeError:
+        return None, "Got a response from the AI but couldn't parse it. Try rephrasing."
 
-    if calories is None:
-        return None, "Got a response from the AI but couldn't read a calorie number from it."
+    note = (parsed.get("note") or "").strip() or None
+
+    if weight_kg is not None:
+        try:
+            met_value = float(parsed["met_value"])
+            duration_hours = float(parsed["duration_hours"])
+        except (KeyError, TypeError, ValueError):
+            return None, "Got a response from the AI but couldn't read it. Try rephrasing."
+        calories = round(met_value * weight_kg * duration_hours)
+    else:
+        try:
+            calories = int(parsed["calories"])
+        except (KeyError, TypeError, ValueError):
+            return None, "Got a response from the AI but couldn't read a calorie number from it."
+
+    try:
+        entry_date = datetime.fromisoformat(parsed.get("date", today)).date()
+    except (ValueError, TypeError):
+        entry_date = datetime.utcnow().date()
+    logged_at = (
+        datetime.utcnow()
+        if entry_date == datetime.utcnow().date()
+        else datetime.combine(entry_date, datetime.min.time().replace(hour=12))
+    )
 
     with app.app_context():
-        entry = ExerciseEntry(activity=activity_text, calories_burned=calories)
+        entry = ExerciseEntry(activity=activity_text, calories_burned=calories, logged_at=logged_at)
         db.session.add(entry)
         db.session.commit()
         result = entry.to_dict()

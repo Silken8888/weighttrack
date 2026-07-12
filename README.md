@@ -760,6 +760,34 @@ yellow, 30.0 red) before wiring it into any template. Falls back to a
 "Set Height" prompt rather than a blank or wrong number when the
 profile's height isn't filled in yet.
 
+## Exercise calorie accuracy fixed, and dates now actually parsed
+
+**The 104-calorie estimate for a 1-mile walk was genuinely wrong**,
+confirmed against the standard MET formula by hand first: for this
+user's actual weight (~350 lbs from BMI 50.2 at 70in), a casual-pace
+1-mile walk should burn roughly 185 calories, not 104 -- a real,
+significant undershoot, not just noise. Root cause: Claude was being
+asked to produce the final calorie number in one step, meaning it had
+to silently do "MET x weight_kg x duration_hours" as mental arithmetic
+on non-round real numbers, which isn't reliable even when the method is
+right. Fixed by splitting the task in two: Claude now only identifies
+an appropriate MET value and duration for the described activity
+(language understanding, which it's good at), and the app does the
+actual multiplication itself in Python against the real logged weight
+-- deterministic, not another AI guess. Re-ran the exact scenario after
+the fix: 185 calories, matching the hand-calculated expected value
+exactly.
+
+**Dates are now actually parsed for exercise too.** Separate bug caught
+in the same message: "yesterday I walked 1 mile" was always being
+logged with *right now's* timestamp regardless of what was said --
+exercise logging never had the date-inference the food agent already
+had. Fixed the same way: Claude returns an inferred date, the entry
+gets stamped with it. Confirmed directly that a "yesterday" entry lands
+on yesterday's date, and confirmed this flows through correctly to the
+day-by-day weight chart's hover data -- calories burned now show up on
+the actual day they happened, not lumped into today.
+
 ## Running it locally
 
 ```bash
