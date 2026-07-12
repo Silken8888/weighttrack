@@ -618,6 +618,39 @@ real gotchas if ever called post-load), just `document.currentScript.
 parentElement.style.display = "none"`, which is safe and synchronous
 here since it always runs during initial page parse.
 
+## Timestamp correction, hero dashboard on desktop, persistent floating chat
+
+**Assistant can now correct WHEN something was logged.** Real gap: the
+adjustment schema only covered nutrition fields, so asking it to fix a
+timestamp ("that was actually at 7am") had nothing to act on and it
+correctly said it couldn't -- not a bug in the sense of broken code, a
+missing capability. Added `date`/`time` fields to the adjustment
+schema; the assistant now updates `logged_at` directly, keeping
+whichever of date/time wasn't mentioned unchanged. Tested three ways:
+time-only correction, combined date+time correction, and a malformed
+time value from the AI (confirmed it skips just the time change rather
+than crashing the whole request).
+
+**Hero dashboard now shows on desktop too.** It was deliberately scoped
+to mobile/tablet only when first built, matching the original "for
+mobile" request -- reasonable at the time, but there was no real reason
+to hide a good piece of UI from desktop once it existed. Unwrapped it
+from the `max-width: 1024px` media query entirely; the splash screen
+stays mobile-only on purpose (a full-screen lock-screen-style gate
+makes sense on a phone, not really as a desktop browsing pattern).
+
+**Floating chat is a real conversation now**, not a fire-and-reload.
+Previously every message triggered a full page reload after ~1.4s,
+which wiped the open modal -- exactly the complaint. Rebuilt as a
+persistent thread: messages append as bubbles, the modal stays open
+across multiple exchanges, and the underlying page only reloads once,
+when the modal is *closed*, and only if something was actually changed
+during the conversation (tracked via whether any job returned created/
+adjusted/deleted entries) -- a pure question changes nothing, so
+closing after one doesn't reload at all. Confirmed the response shape
+each check depends on directly: a logging action returns non-empty
+entries/adjusted/deleted, a pure question returns all three empty.
+
 ## Running it locally
 
 ```bash

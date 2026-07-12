@@ -859,10 +859,58 @@
       });
   }
 
+  // Threaded variant for the floating chat: appends the reply as a
+  // message bubble and keeps the modal open instead of reloading the
+  // page after every message -- the person can keep the conversation
+  // going. Whatever actually changed (items logged, adjusted, deleted)
+  // is applied server-side immediately either way; only the *page's*
+  // visible timeline/stats are deferred until the modal is closed.
+  function pollAgentThreadMessage(jobId, pendingBubble, onSettled, attempt) {
+    const MAX_ATTEMPTS = 55;
+
+    fetch("/food/search/status/" + jobId)
+      .then(function (res) { return res.json(); })
+      .then(function (job) {
+        if (job.status === "pending") {
+          if (attempt >= MAX_ATTEMPTS) {
+            pendingBubble.textContent = "This is taking longer than expected -- check your timeline shortly.";
+            pendingBubble.classList.remove("agent-fab-msg--pending");
+            pendingBubble.classList.add("agent-fab-msg--error");
+            onSettled(false);
+            return;
+          }
+          setTimeout(function () {
+            pollAgentThreadMessage(jobId, pendingBubble, onSettled, attempt + 1);
+          }, 700);
+          return;
+        }
+
+        if (job.status === "error") {
+          pendingBubble.textContent = job.error || "Couldn't do that.";
+          pendingBubble.classList.remove("agent-fab-msg--pending");
+          pendingBubble.classList.add("agent-fab-msg--error");
+          onSettled(false);
+          return;
+        }
+
+        pendingBubble.textContent = job.reply || "Done.";
+        pendingBubble.classList.remove("agent-fab-msg--pending");
+        const madeChanges = (job.entries && job.entries.length) ||
+          (job.adjusted && job.adjusted.length) ||
+          (job.deleted && job.deleted.length);
+        onSettled(!!madeChanges);
+      })
+      .catch(function () {
+        pendingBubble.textContent = "Lost track of that -- check your timeline.";
+        pendingBubble.classList.remove("agent-fab-msg--pending");
+        pendingBubble.classList.add("agent-fab-msg--error");
+        onSettled(false);
+      });
+  }
+
   function setupAgentForm(ids) {
     const form = document.getElementById(ids.form);
-    const statusEl = document.getElementById(ids.status);
-    if (!form || !statusEl) return;
+    if (!form) return;
 
     // mealType/suggestions are optional -- the inline "Tell The
     // Assistant" panel has both, the general-purpose floating chat has
@@ -872,6 +920,62 @@
       mealType.addEventListener("change", function () { loadAgentSuggestions(ids); });
       loadAgentSuggestions(ids);
     }
+
+    if (ids.thread) {
+      // Persistent-conversation mode: the floating chat. Stays open,
+      // appends bubbles, only reloads the page when it's closed (and
+      // only if something was actually changed) -- handled by the
+      // caller via ids.onSettled.
+      const thread = document.getElementById(ids.thread);
+      form.addEventListener("submit", function (evt) {
+        evt.preventDefault();
+        const input = document.getElementById(ids.message);
+        const message = input.value.trim();
+        if (!message) return;
+
+        const userBubble = document.createElement("div");
+        userBubble.className = "agent-fab-msg agent-fab-msg--user";
+        userBubble.textContent = message;
+        thread.appendChild(userBubble);
+
+        const pendingBubble = document.createElement("div");
+        pendingBubble.className = "agent-fab-msg agent-fab-msg--assistant agent-fab-msg--pending";
+        pendingBubble.textContent = "Thinking\u2026";
+        thread.appendChild(pendingBubble);
+        thread.scrollTop = thread.scrollHeight;
+
+        input.value = "";
+        input.disabled = true;
+
+        fetch("/agent/message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: message, meal_type: "" }),
+        })
+          .then(function (res) {
+            if (!res.ok) return res.json().then(function (b) { throw new Error(b.error || "Couldn't do that."); });
+            return res.json();
+          })
+          .then(function (data) {
+            pollAgentThreadMessage(data.job_id, pendingBubble, function (changed) {
+              input.disabled = false;
+              input.focus();
+              thread.scrollTop = thread.scrollHeight;
+              if (changed && ids.onSettled) ids.onSettled();
+            }, 0);
+          })
+          .catch(function (err) {
+            pendingBubble.textContent = err.message;
+            pendingBubble.classList.remove("agent-fab-msg--pending");
+            pendingBubble.classList.add("agent-fab-msg--error");
+            input.disabled = false;
+          });
+      });
+      return;
+    }
+
+    const statusEl = document.getElementById(ids.status);
+    if (!statusEl) return;
 
     form.addEventListener("submit", function (evt) {
       evt.preventDefault();
@@ -1053,17 +1157,19 @@
     if (!fab || !backdrop) return;
 
     let wired = false;
+    let changed = false;
 
     fab.addEventListener("click", function () {
       backdrop.classList.add("is-open");
       if (!wired) {
         // Set up the modal's own form the first time it's opened, not on
-        // every page load -- it's identical logic to the page form, just
-        // pointed at the fab-prefixed element IDs.
+        // every page load -- threaded mode: stays open across multiple
+        // messages, only reloads the underlying page when closed.
         setupAgentForm({
           form: "fab-agent-form",
           message: "fab-agent-message",
-          status: "fab-agent-status",
+          thread: "agent-fab-thread",
+          onSettled: function () { changed = true; },
         });
         wired = true;
       }
@@ -1071,6 +1177,9 @@
 
     function close() {
       backdrop.classList.remove("is-open");
+      if (changed) {
+        window.location.reload();
+      }
     }
 
     if (closeBtn) closeBtn.addEventListener("click", close);

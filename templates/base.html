@@ -51,11 +51,16 @@
     <div class="agent-fab-modal">
       <button type="button" class="nutrition-label__close agent-fab-modal__close" id="agent-fab-close" aria-label="Close">&times;</button>
       <p class="search-panel__eyebrow">Ask The Assistant</p>
+
+      <div class="agent-fab-thread" id="agent-fab-thread">
+        <p class="agent-fab-thread__hint">Logs food, adjusts or removes an entry you mention, corrects the time something was logged, or just answers a question.</p>
+      </div>
+
       <form id="fab-agent-form" class="agent-form">
         <input type="text" id="fab-agent-message" placeholder="Ask anything, or tell me what you ate, or fix something already logged" autocomplete="off">
         <button type="submit" class="btn">Send</button>
       </form>
-      <p class="search-status" id="fab-agent-status">Logs food, adjusts or removes an entry you mention, or just answers a question.</p>
+      <p class="search-status" id="fab-agent-status"></p>
     </div>
   </div>
 

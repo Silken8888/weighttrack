@@ -881,13 +881,17 @@ def _run_food_agent(app, job):
                 "You are the assistant inside WeighTrack, a personal "
                 "nutrition tracker. You can: (1) log new food/drink the user "
                 "describes, (2) adjust an entry already logged if they're "
-                "correcting or changing something (e.g. \"actually the toast "
-                "was 3 slices\", \"change yesterday's lunch to 500 "
-                "calories\"), (3) delete an entry they ask to remove, or "
-                "(4) just answer a question -- not everything is a logging "
-                f"action.\n\n{meal_instruction}\n\n"
+                "correcting or changing something -- nutrition (e.g. "
+                "\"actually the toast was 3 slices\", \"change yesterday's "
+                "lunch to 500 calories\") or WHEN it was logged (e.g. \"that "
+                "was actually at 7am\", \"move breakfast to 8:30\", \"that "
+                "happened yesterday not today\") -- adjusting the logged "
+                "time/date is fully supported, don't say you can't do it, "
+                "(3) delete an entry they ask to remove, or (4) just answer "
+                f"a question -- not everything is a logging action.\n\n{meal_instruction}\n\n"
                 f"Recently logged entries, for reference if they're "
-                f"adjusting or deleting something (refer to one by its id):\n"
+                f"adjusting or deleting something (refer to one by its id; "
+                f"logged_at is shown so you know what to correct it from):\n"
                 f"{recent_context}\n\n"
                 "Break new food into distinct items the same way you always "
                 "do (e.g. toast and peanut butter are separate items, since "
@@ -910,7 +914,10 @@ def _run_food_agent(app, job):
                 '<number or null if unchanged>, "protein_g": <number or '
                 'null>, "carbs_g": <number or null>, "fat_g": <number or '
                 'null>, "description": "<new short name, or null if '
-                'unchanged>"}, ...], "deletions": [<id>, ...], "reply": "<a '
+                'unchanged>", "date": "<YYYY-MM-DD to correct the logged '
+                'date, or null if unchanged>", "time": "<HH:MM 24-hour to '
+                'correct the logged time, or null if unchanged>"}, ...], '
+                '"deletions": [<id>, ...], "reply": "<a '
                 "short, natural response -- confirm what you did and the "
                 'total calories, or your answer if it wasn\'t a logging '
                 'action>"}'
@@ -998,6 +1005,27 @@ def _run_food_agent(app, job):
                     entry.ai_fat_g = _num(adj, "fat_g")
                 if adj.get("description"):
                     entry.description = str(adj["description"]).strip()[:200]
+
+                # Correct WHEN it was logged, not just what it is -- keep
+                # whichever of date/time wasn't specified as-is on the
+                # existing logged_at, only overwrite the part that changed.
+                new_date_str = adj.get("date")
+                new_time_str = adj.get("time")
+                if new_date_str or new_time_str:
+                    try:
+                        target_date = (
+                            datetime.fromisoformat(new_date_str).date()
+                            if new_date_str else entry.logged_at.date()
+                        )
+                        if new_time_str:
+                            hour, minute = (int(p) for p in new_time_str.split(":")[:2])
+                            target_time = entry.logged_at.time().replace(hour=hour, minute=minute)
+                        else:
+                            target_time = entry.logged_at.time()
+                        entry.logged_at = datetime.combine(target_date, target_time)
+                    except (ValueError, TypeError, IndexError):
+                        pass  # malformed date/time from the AI -- skip the time change, keep the rest
+
                 adjusted.append(entry)
             except (TypeError, ValueError):
                 continue
