@@ -1,32 +1,39 @@
 /* ==========================================================================
    WeighTrack design tokens
 
-   Direction: a dark dashboard shell (navy surfaces, rounded cards, neon
-   accent trio) rather than a themed illustration. Coral is the primary
-   action color, teal is secondary/positive actions, pink marks tags and
-   identifiers. All labels, badges, and stat names are Title Case.
+   Direction: dark charcoal shell, monospace type throughout, and a
+   signature mint-green -> lavender -> coral-pink gradient used on
+   primary actions and the mobile hero -- a technical, "dev tool"
+   feel rather than the earlier navy/coral/teal system. Variable NAMES
+   are unchanged from before (--coral, --teal, --pink, etc.) even
+   though the hues they point to have shifted -- every rule in this
+   file already references these tokens, so changing values here
+   reskins the whole app without touching hundreds of individual
+   declarations.
    ========================================================================== */
 
 :root {
-  --bg: #0f1420;
-  --surface: #1b2333;
-  --surface-2: #232c40;
-  --surface-3: #2d374d;
+  --bg: #18181f;
+  --surface: #22222c;
+  --surface-2: #14141a;
+  --surface-3: #2d2d3a;
 
-  --text: #f5f3ff;
-  --text-secondary: #c9cddb;
-  --text-muted: #8a93a6;
-  --text-faint: #5b6578;
+  --text: #f5f5f7;
+  --text-secondary: #c9c9d4;
+  --text-muted: #9ca3af;
+  --text-faint: #6b6b78;
 
-  --coral: #ff7a68;
-  --teal: #2dd4bf;
-  --pink: #ff5fa8;
+  --coral: #f8a88c;
+  --teal: #8fefc0;
+  --pink: #a78bfa;
   --danger: #fb4f4f;
-  --green: #4ade80;
+  --green: #86efac;
   --gold: #fbbf24;
 
-  --font-display: "Sora", -apple-system, sans-serif;
-  --font-body: "Inter", -apple-system, sans-serif;
+  --gradient-accent: linear-gradient(90deg, #8fefc0, #a78bfa, #f8a88c);
+
+  --font-display: "JetBrains Mono", "Courier New", monospace;
+  --font-body: "JetBrains Mono", "Courier New", monospace;
 
   --radius-lg: 20px;
   --radius-md: 16px;
@@ -95,7 +102,9 @@ button { font-family: inherit; cursor: pointer; }
 .wordmark {
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: clamp(26px, 4vw, 32px);
+  font-size: clamp(24px, 4vw, 30px);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   color: var(--text);
   margin: 0;
   line-height: 1;
@@ -156,8 +165,8 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 .site-nav a[aria-current="page"] {
-  background: var(--coral);
-  color: var(--bg);
+  background: var(--gradient-accent);
+  color: #14141a;
 }
 
 .site-nav a:hover:not([aria-current="page"]) {
@@ -220,7 +229,9 @@ button { font-family: inherit; cursor: pointer; }
 .hero h1 {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(24px, 4vw, 30px);
+  font-size: clamp(22px, 4vw, 28px);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   color: var(--text);
   margin: 0 0 8px;
 }
@@ -273,11 +284,12 @@ button { font-family: inherit; cursor: pointer; }
   font-family: var(--font-body);
   font-weight: 700;
   font-size: 13px;
+  letter-spacing: 0.03em;
   padding: 12px 22px;
   border-radius: var(--radius-pill);
   border: none;
-  background: var(--coral);
-  color: var(--bg);
+  background: var(--gradient-accent);
+  color: #14141a;
   transition: transform 0.1s ease, opacity 0.15s ease;
 }
 
@@ -917,54 +929,60 @@ button { font-family: inherit; cursor: pointer; }
 @media (max-width: 1024px) {
   .mobile-hero {
     display: block;
-    position: relative;
-    overflow: hidden;
-    background: radial-gradient(circle at 50% -20%, rgba(45, 212, 191, 0.18), transparent 60%), var(--surface);
-    border-radius: var(--radius-lg);
-    padding: 22px 18px 20px;
     margin: 24px 0 28px;
     animation: pop-in 0.25s ease-out;
   }
 
+  .mobile-hero__gradient {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(100deg, var(--teal), var(--pink), var(--coral));
+    border-radius: var(--radius-lg);
+    padding: 18px 12px;
+  }
+
   .mobile-hero__day {
-    display: inline-block;
+    display: block;
+    width: fit-content;
+    margin: 0 auto 16px;
     font-family: var(--font-body);
-    font-weight: 700;
-    font-size: 11px;
+    font-weight: 600;
+    font-size: 10px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: var(--text-muted);
-    background: var(--surface-2);
-    padding: 6px 14px;
+    color: #14141a;
+    background: rgba(20, 20, 26, 0.18);
+    padding: 5px 14px;
     border-radius: var(--radius-pill);
-    margin: 0 0 18px;
   }
 
   .mobile-hero__numbers {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 8px;
-    text-align: center;
   }
 
   .mobile-hero__stat {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 2px;
+    background: rgba(20, 20, 26, 0.75);
+    border-radius: var(--radius-md);
+    padding: 14px 4px;
   }
 
   .mobile-hero__value {
     font-family: var(--font-display);
-    font-weight: 800;
-    font-size: clamp(30px, 9vw, 44px);
+    font-weight: 600;
+    font-size: clamp(22px, 7vw, 30px);
     line-height: 1;
-    letter-spacing: -0.01em;
   }
 
   .mobile-hero__value--muted {
-    font-size: 16px;
-    font-weight: 700;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-muted);
   }
 
   .mobile-hero__value--muted a {
@@ -972,26 +990,28 @@ button { font-family: inherit; cursor: pointer; }
     text-decoration: underline;
   }
 
+  .mobile-hero__stat--green .mobile-hero__value { color: var(--green); }
+  .mobile-hero__stat--red .mobile-hero__value { color: #fb6f6f; }
+  .mobile-hero__stat--gold .mobile-hero__value { color: var(--gold); }
+
   .mobile-hero__label {
     font-family: var(--font-body);
-    font-weight: 700;
-    font-size: 10px;
-    letter-spacing: 0.04em;
+    font-weight: 600;
+    font-size: 9px;
+    letter-spacing: 0.03em;
     text-transform: uppercase;
-    color: var(--text-faint);
+    color: var(--text-muted);
+    margin-top: 2px;
   }
-
-  .mobile-hero__stat--green .mobile-hero__value { color: var(--green); }
-  .mobile-hero__stat--red .mobile-hero__value { color: var(--danger); }
-  .mobile-hero__stat--gold .mobile-hero__value { color: var(--gold); }
 
   .mobile-hero__extra {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 6px;
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid var(--surface-2);
+    margin-top: 12px;
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    padding: 14px 8px;
   }
 
   .mobile-hero__extra-stat {
@@ -1001,14 +1021,14 @@ button { font-family: inherit; cursor: pointer; }
   .mobile-hero__extra-stat span {
     display: block;
     font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 18px;
+    font-weight: 600;
+    font-size: 15px;
     color: var(--text);
   }
 
   .mobile-hero__extra-stat p {
     font-family: var(--font-body);
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.03em;

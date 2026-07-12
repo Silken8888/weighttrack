@@ -580,6 +580,21 @@ sex) is genuinely present in it, not just claimed, and (2) confirmed it
 still works with a sensible generic fallback when no profile or
 weigh-in data exists yet, rather than failing outright.
 
+## Hero dashboard: gradient tile with color-coded chips
+
+Refined per feedback into three rounds: first a dark surface with a
+subtle glow, then a full radiant gradient tile matching the reference's
+countdown bar exactly, then back to keeping the individual green/red/
+gold color-coding rather than unifying to dark numbers -- resolved by
+giving each stat its own dark chip on top of the gradient, so the
+colored numbers stay legible regardless of which part of the
+green-to-lavender-to-coral gradient they land on (green text directly
+on the green part of the gradient would have been unreadable otherwise).
+Font weight dropped from 800 to 600 to match the reference's lighter
+number style. Secondary stats (streak, 7-day average, etc.) stay on the
+plain dark surface below, so the radiant moment doesn't get diluted
+across seven numbers.
+
 ## Running it locally
 
 ```bash
