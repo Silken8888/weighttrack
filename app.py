@@ -7,10 +7,11 @@ import time
 import uuid
 import threading
 from queue import Queue, Empty
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone, time as dtime
+from zoneinfo import ZoneInfo
 
 import requests
-from flask import Flask, render_template, request, jsonify, abort
+from flask import Flask, render_template, request, jsonify, abort, redirect, url_for
 from sqlalchemy import inspect as sa_inspect, text as sa_text
 from PIL import Image, UnidentifiedImageError
 
@@ -475,7 +476,68 @@ def _extract_tool_input(data, tool_name):
     return None
 
 
-def _gather_app_context(app):
+def _user_timezone():
+    """Reads the browser-detected IANA timezone from a cookie (set by
+    JS on every page load -- see resolveTimezone() in main.js), falling
+    back to UTC if it's missing or invalid. This is the fix for a real,
+    systemic bug: every 'today' boundary in this app used to be
+    computed in UTC, meaning anything logged in the evening (in most US
+    timezones, several hours behind UTC) got stamped with *tomorrow's*
+    UTC date -- it would vanish from "today" and only reappear once the
+    UTC clock rolled over hours later, which looks exactly like
+    yesterday's data haunting today.
+    """
+    tz_name = request.cookies.get("wt_tz")
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name)
+        except Exception:  # noqa: BLE001 -- any bad/unknown tz string falls back safely
+            pass
+    return ZoneInfo("UTC")
+
+
+def _local_today(tz=None):
+    return datetime.now(tz or _user_timezone()).date()
+
+
+def _local_now_naive(tz=None):
+    """'Right now', but as a naive datetime in the user's local time --
+    used when stamping a new entry as happening right now, so it reads
+    correctly against other local-date comparisons throughout the app
+    (which all now work in local time, not UTC).
+    """
+    return datetime.now(tz or _user_timezone()).replace(tzinfo=None)
+
+
+def _to_local_date(naive_utc_dt, tz=None):
+    """Converts a stored datetime (naive, but representing UTC -- how
+    logged_at is stored everywhere in this app) into the user's local
+    calendar date. This is the piece that was missing everywhere:
+    grouping/comparing by `.date()` directly on a UTC-stamped value
+    gives the UTC calendar day, not the day it actually happened for
+    the person.
+    """
+    tz = tz or _user_timezone()
+    aware_utc = naive_utc_dt.replace(tzinfo=timezone.utc)
+    return aware_utc.astimezone(tz).date()
+
+
+def _local_day_bounds_utc(local_day, tz=None):
+    """Given a local calendar date, returns (start, end) as naive
+    datetimes representing that day's midnight-to-midnight span
+    *converted to UTC* -- the correct range to query logged_at values
+    (stored as naive UTC) against, rather than comparing UTC midnight
+    boundaries directly.
+    """
+    tz = tz or _user_timezone()
+    local_start = datetime.combine(local_day, dtime.min, tzinfo=tz)
+    local_end = local_start + timedelta(days=1)
+    utc_start = local_start.astimezone(timezone.utc).replace(tzinfo=None)
+    utc_end = local_end.astimezone(timezone.utc).replace(tzinfo=None)
+    return utc_start, utc_end
+
+
+def _gather_app_context(app, tz=None):
     """One shared snapshot of real app data -- profile, latest weight,
     the app's own calorie-target calculation, recent food entries,
     recent exercise entries -- for any AI-driven feature to use.
@@ -514,9 +576,10 @@ def _gather_app_context(app):
             for e in recent_exercise
         ) or "(nothing logged yet)"
 
+        local_start, local_end = _local_day_bounds_utc(_local_today(tz), tz)
         today_entries = db.session.execute(
             db.select(FoodLogEntry).filter(
-                FoodLogEntry.logged_at >= datetime.combine(datetime.utcnow().date(), datetime.min.time())
+                FoodLogEntry.logged_at >= local_start, FoodLogEntry.logged_at < local_end
             )
         ).scalars().all()
         calories_today = round(sum(e.calories or 0 for e in today_entries))
@@ -813,6 +876,46 @@ def _run_photo_job(app, job):
     }, None
 
 
+def _to_local_datetime(naive_utc_dt, tz=None):
+    tz = tz or _user_timezone()
+    return naive_utc_dt.replace(tzinfo=timezone.utc).astimezone(tz)
+
+
+def _local_to_utc_naive(local_date, local_time, tz=None):
+    tz = tz or _user_timezone()
+    local_dt = datetime.combine(local_date, local_time, tzinfo=tz)
+    return local_dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _local_noon_utc(local_day, tz=None):
+    """A UTC-naive timestamp representing local noon on the given local
+    day -- used when logging a past-dated entry, anchored away from
+    midnight so it doesn't drift to the wrong calendar day once
+    reinterpreted back through _to_local_date(). Keeps storage
+    consistently UTC-naive throughout the app (matching every existing
+    datetime.utcnow() default) while still landing on the correct local
+    day when read back.
+    """
+    tz = tz or _user_timezone()
+    start_utc, _ = _local_day_bounds_utc(local_day, tz)
+    return start_utc + timedelta(hours=12)
+
+
+def _job_tz(job):
+    """Background job workers have no Flask request context, so they
+    can't read the timezone cookie directly -- the route handler that
+    enqueued the job captures it into job["tz"] first (see each route
+    below), and this turns that back into a ZoneInfo here.
+    """
+    tz_name = job.get("tz")
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name)
+        except Exception:  # noqa: BLE001
+            pass
+    return ZoneInfo("UTC")
+
+
 def _run_exercise_estimate(app, job):
     """Estimate calories burned for a described activity ('half a mile
     walk'), personalized against the user's actual weight -- weight is
@@ -843,9 +946,10 @@ def _run_exercise_estimate(app, job):
     that produced a 700+ calorie day from repeated retries earlier).
     """
     activity_text = job["activity"]
-    today = datetime.utcnow().date().isoformat()
+    tz = _job_tz(job)
+    today = _local_today(tz).isoformat()
 
-    ctx = _gather_app_context(app)
+    ctx = _gather_app_context(app, tz)
     weight_kg = ctx["weight_kg"]
 
     if weight_kg is not None:
@@ -930,11 +1034,11 @@ def _run_exercise_estimate(app, job):
     try:
         entry_date = datetime.fromisoformat(parsed.get("date", today)).date()
     except (ValueError, TypeError):
-        entry_date = datetime.utcnow().date()
+        entry_date = _local_today(tz)
     logged_at = (
         datetime.utcnow()
-        if entry_date == datetime.utcnow().date()
-        else datetime.combine(entry_date, datetime.min.time().replace(hour=12))
+        if entry_date == _local_today(tz)
+        else _local_noon_utc(entry_date, tz)
     )
 
     with app.app_context():
@@ -960,7 +1064,9 @@ def _run_meal_photo_job(app, job):
     if error:
         return None, error
 
-    ai_calories, ai_description, ai_error = _estimate_meal_calories(app, image_bytes, _gather_app_context(app))
+    ai_calories, ai_description, ai_error = _estimate_meal_calories(
+        app, image_bytes, _gather_app_context(app, _job_tz(job))
+    )
     # An AI-estimate failure shouldn't discard a photo that uploaded fine
     # -- save the entry anyway with calories left blank so the user can
     # fill it in themselves, and surface the AI error as a note instead
@@ -1009,10 +1115,11 @@ def _run_food_agent(app, job):
     message = job["message"]
     meal_type = job.get("meal_type")
     history = job.get("history") or []
-    today = datetime.utcnow().date().isoformat()
-    now_time = datetime.utcnow().strftime("%H:%M")
+    tz = _job_tz(job)
+    today = _local_today(tz).isoformat()
+    now_time = datetime.now(tz).strftime("%H:%M")
 
-    ctx = _gather_app_context(app)
+    ctx = _gather_app_context(app, tz)
     recent_context = ctx["recent_food_context"]
     exercise_context = ctx["recent_exercise_context"]
     profile_context = ctx["profile_context"]
@@ -1229,12 +1336,12 @@ def _run_food_agent(app, job):
                 try:
                     item_date = datetime.fromisoformat(item.get("date", today)).date()
                 except (ValueError, TypeError):
-                    item_date = datetime.utcnow().date()
+                    item_date = _local_today(tz)
 
                 logged_at = (
                     datetime.utcnow()
-                    if item_date == datetime.utcnow().date()
-                    else datetime.combine(item_date, datetime.min.time().replace(hour=12))
+                    if item_date == _local_today(tz)
+                    else _local_noon_utc(item_date, tz)
                 )
 
                 item_meal_type = meal_type or (item.get("meal_type") or "snack").strip().lower()
@@ -1269,11 +1376,11 @@ def _run_food_agent(app, job):
                 try:
                     ex_date = datetime.fromisoformat(ex_item.get("date", today)).date()
                 except (ValueError, TypeError):
-                    ex_date = datetime.utcnow().date()
+                    ex_date = _local_today(tz)
                 ex_logged_at = (
                     datetime.utcnow()
-                    if ex_date == datetime.utcnow().date()
-                    else datetime.combine(ex_date, datetime.min.time().replace(hour=12))
+                    if ex_date == _local_today(tz)
+                    else _local_noon_utc(ex_date, tz)
                 )
 
                 activity = (ex_item.get("activity") or "Exercise").strip()[:200]
@@ -1315,16 +1422,17 @@ def _run_food_agent(app, job):
                     new_time_str = adj.get("time")
                     if new_date_str or new_time_str:
                         try:
+                            existing_local = _to_local_datetime(ex_entry.logged_at, tz)
                             target_date = (
                                 datetime.fromisoformat(new_date_str).date()
-                                if new_date_str else ex_entry.logged_at.date()
+                                if new_date_str else existing_local.date()
                             )
                             if new_time_str:
                                 hour, minute = (int(p) for p in new_time_str.split(":")[:2])
-                                target_time = ex_entry.logged_at.time().replace(hour=hour, minute=minute)
+                                target_time = existing_local.time().replace(hour=hour, minute=minute)
                             else:
-                                target_time = ex_entry.logged_at.time()
-                            ex_entry.logged_at = datetime.combine(target_date, target_time)
+                                target_time = existing_local.time()
+                            ex_entry.logged_at = _local_to_utc_naive(target_date, target_time, tz)
                         except (ValueError, TypeError, IndexError):
                             pass
                     adjusted.append(ex_entry)
@@ -1351,16 +1459,17 @@ def _run_food_agent(app, job):
                 new_time_str = adj.get("time")
                 if new_date_str or new_time_str:
                     try:
+                        existing_local = _to_local_datetime(entry.logged_at, tz)
                         target_date = (
                             datetime.fromisoformat(new_date_str).date()
-                            if new_date_str else entry.logged_at.date()
+                            if new_date_str else existing_local.date()
                         )
                         if new_time_str:
                             hour, minute = (int(p) for p in new_time_str.split(":")[:2])
-                            target_time = entry.logged_at.time().replace(hour=hour, minute=minute)
+                            target_time = existing_local.time().replace(hour=hour, minute=minute)
                         else:
-                            target_time = entry.logged_at.time()
-                        entry.logged_at = datetime.combine(target_date, target_time)
+                            target_time = existing_local.time()
+                        entry.logged_at = _local_to_utc_naive(target_date, target_time, tz)
                     except (ValueError, TypeError, IndexError):
                         pass  # malformed date/time from the AI -- skip the time change, keep the rest
 
@@ -1454,23 +1563,28 @@ def start_search_worker(app):
 # hand-rolled SVG sparkline -- no charting library needed for one line.
 # ---------------------------------------------------------------------------
 
-def _compute_streak(weigh_ins, vacation_periods):
+def _compute_streak(weigh_ins, vacation_periods, tz=None):
     """Consecutive calendar days with a weigh-in, walking backward from
     today, treating vacation-covered days as grace days that count
     toward the streak without needing an entry -- per the original
     spec, a trip shouldn't zero out (or silently discount) an
     established streak. Today itself is allowed to be pending (not yet
     logged) without breaking anything, since the day isn't over.
+
+    "Today" and each entry's day are both computed in the user's local
+    timezone -- comparing local calendar days consistently, not the
+    UTC day a timestamp happens to fall on.
     """
     if not weigh_ins:
         return 0
-    logged_dates = {w.logged_at.date() for w in weigh_ins}
+    tz = tz or _user_timezone()
+    logged_dates = {_to_local_date(w.logged_at, tz) for w in weigh_ins}
 
     def on_vacation(d):
         return any(vp.start_date <= d <= vp.end_date for vp in vacation_periods)
 
     streak = 0
-    day = datetime.utcnow().date()
+    day = _local_today(tz)
     if day not in logged_dates and not on_vacation(day):
         day -= timedelta(days=1)
     while day in logged_dates or on_vacation(day):
@@ -1479,9 +1593,10 @@ def _compute_streak(weigh_ins, vacation_periods):
     return streak
 
 
-def _rolling_average(weigh_ins, as_of, window_days=7):
+def _rolling_average(weigh_ins, as_of, window_days=7, tz=None):
+    tz = tz or _user_timezone()
     window_start = as_of - timedelta(days=window_days - 1)
-    values = [w.weight_lbs for w in weigh_ins if window_start <= w.logged_at.date() <= as_of]
+    values = [w.weight_lbs for w in weigh_ins if window_start <= _to_local_date(w.logged_at, tz) <= as_of]
     if not values:
         return None
     return sum(values) / len(values)
@@ -1510,17 +1625,19 @@ def _bmi_color(bmi):
     return "red"
 
 
-def _weigh_in_chart_data(weigh_ins):
+def _weigh_in_chart_data(weigh_ins, tz=None):
     """One point per actual logged weigh-in (not synthesized empty
     days -- per the direct request, this tracks each real day, not a
     smoothed average), each carrying that day's calories consumed and
-    burned for the hover tooltip.
+    burned for the hover tooltip. Each day's boundary is computed in
+    the user's local timezone, not UTC, so a meal logged at 9pm doesn't
+    get attributed to the wrong calendar day.
     """
+    tz = tz or _user_timezone()
     data = []
     for w in weigh_ins:
-        day = w.logged_at.date()
-        start = datetime.combine(day, datetime.min.time())
-        end = start + timedelta(days=1)
+        day = _to_local_date(w.logged_at, tz)
+        start, end = _local_day_bounds_utc(day, tz)
 
         day_food = db.session.execute(
             db.select(FoodLogEntry).filter(FoodLogEntry.logged_at >= start, FoodLogEntry.logged_at < end)
@@ -1548,16 +1665,31 @@ def _weigh_in_chart_data(weigh_ins):
 
 def register_routes(app):
 
+    @app.template_filter("local_time")
+    def local_time_filter(dt, fmt="%-I:%M %p"):
+        """Displays a stored (UTC-naive) datetime in the user's actual
+        local time, not the raw UTC clock time it's stored as -- without
+        this, timeline/history timestamps show the wrong time-of-day for
+        anyone not in UTC, on top of the day-bucketing issue this whole
+        fix addresses.
+        """
+        if dt is None:
+            return ""
+        return _to_local_datetime(dt).strftime(fmt)
+
+    @app.template_filter("local_date")
+    def local_date_filter(dt, fmt="%a, %b %-d"):
+        if dt is None:
+            return ""
+        return _to_local_datetime(dt).strftime(fmt)
+
     def _all_food_items():
         return db.session.execute(
             db.select(FoodItem).order_by(FoodItem.nickname)
         ).scalars().all()
 
     def _todays_log_entries():
-        # UTC day boundary -- see the note on FoodLogEntry.logged_at.
-        today = datetime.utcnow().date()
-        start = datetime.combine(today, datetime.min.time())
-        end = start + timedelta(days=1)
+        start, end = _local_day_bounds_utc(_local_today())
         return db.session.execute(
             db.select(FoodLogEntry)
             .filter(FoodLogEntry.logged_at >= start, FoodLogEntry.logged_at < end)
@@ -1582,68 +1714,29 @@ def register_routes(app):
             db.session.commit()
         return profile
 
-    def _food_page_context():
-        entries = _todays_log_entries()
-        # .calories (not .scaled("calories")) -- scaled() only works for
-        # library-linked entries; photo-logged meals need the property to
-        # pick up ai_calories/manual_calories. Using .scaled() directly
-        # here was a real bug: photo-logged meals silently contributed 0
-        # to today's total.
-        total_calories = sum(e.calories or 0 for e in entries)
-
-        weigh_ins = _all_weigh_ins()
-        vacations = _all_vacation_periods()
-        latest_weight = weigh_ins[-1].weight_lbs if weigh_ins else None
-        starting_weight = weigh_ins[0].weight_lbs if weigh_ins else None
-        streak = _compute_streak(weigh_ins, vacations)
-        rolling_avg = _rolling_average(weigh_ins, datetime.utcnow().date()) if weigh_ins else None
-
-        profile = _get_profile()
-        calorie_target = profile.calorie_target(latest_weight) if latest_weight else None
-
-        pounds_lost = None
-        if starting_weight is not None and latest_weight is not None:
-            pounds_lost = max(0, round(starting_weight - latest_weight, 1))
-
-        goal_weight = profile.goal_weight_lbs
-        lbs_to_goal = None
-        if goal_weight is not None and latest_weight is not None:
-            lbs_to_goal = round(max(0, latest_weight - goal_weight), 1)
-
-        # June 28, 2026 is the stated program start -- stored on the
-        # profile (editable later on the Dashboard) rather than
-        # hardcoded here, but defaults to that date until they change it
-        # or a profile row with an actual value exists.
-        start_date = profile.program_start_date or date(2026, 6, 28)
-        days_since_start = max(0, (datetime.utcnow().date() - start_date).days)
-
-        bmi = _calculate_bmi(latest_weight, profile.height_in)
-        bmi_color = _bmi_color(bmi)
-
-        return {
-            "items": _all_food_items(),
-            "active_nav": "food",
-            "log_entries": entries,
-            "calories_today": round(total_calories) if entries else None,
-            "latest_weight": latest_weight,
-            "streak": streak,
-            "calorie_target": calorie_target,
-            "pounds_lost": pounds_lost,
-            "goal_weight": goal_weight,
-            "bmi": bmi,
-            "bmi_color": bmi_color,
-            "lbs_to_goal": lbs_to_goal,
-            "days_since_start": days_since_start,
-            "rolling_avg": round(rolling_avg, 1) if rolling_avg is not None else None,
-        }
-
     @app.route("/")
     def index():
-        return render_template("food_library.html", **_food_page_context())
+        return dashboard()
 
     @app.route("/food")
     def food_library():
-        return render_template("food_library.html", **_food_page_context())
+        """URL and endpoint name unchanged (so every url_for('food_library')
+        reference elsewhere keeps working), but this is now the "Log" tab
+        -- every input field in the app lives here (food, exercise,
+        weigh-in, profile settings) and nowhere else. All of it used to
+        be scattered across three separate pages, several of which mixed
+        inputs with the metrics they fed -- entering a weight and seeing
+        the goal-progress number change on the same screen, for example
+        -- which made the actual flow hard to follow. Every *result* of
+        these inputs now lives on the Dashboard instead.
+        """
+        profile = _get_profile()
+        return render_template(
+            "food_library.html",
+            active_nav="log",
+            profile=profile,
+            activity_levels=ACTIVITY_LEVELS,
+        )
 
     @app.route("/log/add", methods=["POST"])
     def log_add():
@@ -1738,6 +1831,7 @@ def register_routes(app):
                 "message": message,
                 "meal_type": meal_type,
                 "history": history,
+                "tz": request.cookies.get("wt_tz"),
                 "created_at": datetime.utcnow(),
                 "results": None,
                 "error": None,
@@ -1867,6 +1961,7 @@ def register_routes(app):
                 "meal_type": meal_type,
                 "servings": servings,
                 "description": description,
+                "tz": request.cookies.get("wt_tz"),
                 "created_at": datetime.utcnow(),
                 "results": None,
                 "error": None,
@@ -2067,39 +2162,13 @@ def register_routes(app):
 
     @app.route("/weigh-in")
     def weigh_in_log():
-        weigh_ins = _all_weigh_ins()
-        vacations = _all_vacation_periods()
-        streak = _compute_streak(weigh_ins, vacations)
-        rolling_avg = _rolling_average(weigh_ins, datetime.utcnow().date()) if weigh_ins else None
-        chart_data = _weigh_in_chart_data(weigh_ins)
+        """Endpoint name kept alive for any existing url_for() references
+        -- the actual content (chart, milestones, streak) now lives on
+        the Dashboard, and the entry list + logging form live on the Log
+        tab, so this just sends anyone who lands here to the right place.
+        """
+        return redirect(url_for("dashboard"))
 
-        profile = _get_profile()
-        latest_weight = weigh_ins[-1].weight_lbs if weigh_ins else None
-        bmi = _calculate_bmi(latest_weight, profile.height_in)
-        bmi_color = _bmi_color(bmi)
-
-        milestones = []
-        if len(weigh_ins) == 1:
-            milestones.append("First weigh-in logged -- nice start.")
-        if streak and streak % 7 == 0:
-            milestones.append(f"{streak}-day streak!")
-        if len(weigh_ins) >= 2:
-            change = weigh_ins[-1].weight_lbs - weigh_ins[0].weight_lbs
-            if abs(change) >= 5:
-                direction = "down" if change < 0 else "up"
-                milestones.append(f"{abs(round(change, 1))} lbs {direction} since your first entry.")
-
-        return render_template(
-            "weigh_in.html",
-            active_nav="weigh_in",
-            weigh_ins=list(reversed(weigh_ins)),
-            streak=streak,
-            rolling_avg=round(rolling_avg, 1) if rolling_avg is not None else None,
-            chart_data=chart_data,
-            milestones=milestones,
-            bmi=bmi,
-            bmi_color=bmi_color,
-        )
 
     @app.route("/weigh-in/add", methods=["POST"])
     def weigh_in_add():
@@ -2114,19 +2183,21 @@ def register_routes(app):
         notes = (payload.get("notes") or "").strip() or None
 
         # Optional backdating -- if a date is given and it's not today,
-        # use noon on that date (we only have a date, not a time, from
-        # the form). Milestones and the "first entry" reference already
-        # work off whichever logged_at is earliest, sorted at query time
-        # -- not insertion order -- so backdating an earlier entry
-        # automatically recalibrates "day one" without any extra logic.
+        # use local noon on that date (we only have a date, not a time,
+        # from the form). Milestones and the "first entry" reference
+        # already work off whichever logged_at is earliest, sorted at
+        # query time -- not insertion order -- so backdating an earlier
+        # entry automatically recalibrates "day one" without any extra
+        # logic.
         raw_date = (payload.get("date") or "").strip()
-        logged_at = datetime.utcnow()
+        logged_at = _local_now_naive()
         if raw_date:
             try:
                 entry_date = datetime.fromisoformat(raw_date).date()
-                if entry_date != datetime.utcnow().date():
-                    logged_at = datetime.combine(entry_date, datetime.min.time().replace(hour=12))
-                if entry_date > datetime.utcnow().date():
+                today_local = _local_today()
+                if entry_date != today_local:
+                    logged_at = _local_noon_utc(entry_date)
+                if entry_date > today_local:
                     return jsonify(error="Can't log a weigh-in in the future"), 400
             except ValueError:
                 return jsonify(error="That date doesn't look right"), 400
@@ -2151,7 +2222,7 @@ def register_routes(app):
 
     @app.route("/vacation")
     def vacation_mode():
-        today = datetime.utcnow().date()
+        today = _local_today()
         periods = _all_vacation_periods()
         current = [p for p in periods if p.start_date <= today <= p.end_date]
         upcoming = [p for p in periods if p.start_date > today]
@@ -2198,15 +2269,45 @@ def register_routes(app):
     def dashboard():
         profile = _get_profile()
         weigh_ins = _all_weigh_ins()
+        vacations = _all_vacation_periods()
         latest_weight = weigh_ins[-1].weight_lbs if weigh_ins else None
+        starting_weight = weigh_ins[0].weight_lbs if weigh_ins else None
         calorie_target = profile.calorie_target(latest_weight) if latest_weight else None
+        streak = _compute_streak(weigh_ins, vacations)
+        rolling_avg = _rolling_average(weigh_ins, _local_today()) if weigh_ins else None
+        chart_data = _weigh_in_chart_data(weigh_ins)
+
+        pounds_lost = None
+        if starting_weight is not None and latest_weight is not None:
+            pounds_lost = max(0, round(starting_weight - latest_weight, 1))
+
+        goal_weight = profile.goal_weight_lbs
+        lbs_to_goal = None
+        if goal_weight is not None and latest_weight is not None:
+            lbs_to_goal = round(max(0, latest_weight - goal_weight), 1)
+
+        start_date = profile.program_start_date or date(2026, 6, 28)
+        days_since_start = max(0, (_local_today() - start_date).days)
+
+        bmi = _calculate_bmi(latest_weight, profile.height_in)
+        bmi_color = _bmi_color(bmi)
+
+        milestones = []
+        if len(weigh_ins) == 1:
+            milestones.append("First weigh-in logged -- nice start.")
+        if streak and streak % 7 == 0:
+            milestones.append(f"{streak}-day streak!")
+        if len(weigh_ins) >= 2:
+            change = weigh_ins[-1].weight_lbs - weigh_ins[0].weight_lbs
+            if abs(change) >= 5:
+                direction = "down" if change < 0 else "up"
+                milestones.append(f"{abs(round(change, 1))} lbs {direction} since your first entry.")
 
         entries = _todays_log_entries()
         consumed = round(sum(e.calories or 0 for e in entries)) if entries else 0
 
-        today = datetime.utcnow().date()
-        start = datetime.combine(today, datetime.min.time())
-        end = start + timedelta(days=1)
+        today = _local_today()
+        start, end = _local_day_bounds_utc(today)
         exercise_today = db.session.execute(
             db.select(ExerciseEntry)
             .filter(ExerciseEntry.logged_at >= start, ExerciseEntry.logged_at < end)
@@ -2218,16 +2319,13 @@ def register_routes(app):
         if calorie_target is not None:
             remaining = calorie_target - consumed + burned
 
-        bmi = _calculate_bmi(latest_weight, profile.height_in)
-        bmi_color = _bmi_color(bmi)
-
         # Exercise history, grouped by day -- "Today's Exercise" only ever
         # showed today, so a past-dated entry (e.g. "yesterday I walked a
         # mile") was invisible anywhere in the UI even though it existed
         # in the database. This surfaces the last 30 days, letting past
         # entries actually be seen (and cleaned up if something got
         # logged more than once).
-        history_start = datetime.combine(today - timedelta(days=30), datetime.min.time())
+        history_start, _ = _local_day_bounds_utc(today - timedelta(days=30))
         recent_exercise = db.session.execute(
             db.select(ExerciseEntry)
             .filter(ExerciseEntry.logged_at >= history_start)
@@ -2237,7 +2335,7 @@ def register_routes(app):
         exercise_by_day = {}
         day_order = []
         for e in recent_exercise:
-            day = e.logged_at.date()
+            day = _to_local_date(e.logged_at)
             if day not in exercise_by_day:
                 exercise_by_day[day] = []
                 day_order.append(day)
@@ -2257,8 +2355,18 @@ def register_routes(app):
             "dashboard.html",
             active_nav="dashboard",
             profile=profile,
-            activity_levels=ACTIVITY_LEVELS,
+            weigh_ins=list(reversed(weigh_ins)),
+            log_entries=entries,
+            calories_today=round(consumed) if entries else None,
             latest_weight=latest_weight,
+            pounds_lost=pounds_lost,
+            goal_weight=goal_weight,
+            lbs_to_goal=lbs_to_goal,
+            days_since_start=days_since_start,
+            streak=streak,
+            rolling_avg=round(rolling_avg, 1) if rolling_avg is not None else None,
+            chart_data=chart_data,
+            milestones=milestones,
             calorie_target=calorie_target,
             consumed=consumed,
             burned=burned,
@@ -2329,6 +2437,7 @@ def register_routes(app):
                 "kind": "exercise_estimate",
                 "status": "pending",
                 "activity": activity,
+                "tz": request.cookies.get("wt_tz"),
                 "created_at": datetime.utcnow(),
                 "results": None,
                 "error": None,

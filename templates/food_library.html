@@ -1,134 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Food Library &middot; WeighTrack{% endblock %}
+{% block title %}Log &middot; WeighTrack{% endblock %}
 
 {% block content %}
 
-  <div id="splash-screen" class="splash-screen">
-    <script>
-      // Runs synchronously as the parser reaches it -- hides this div
-      // immediately, before its remaining children are even parsed, so a
-      // returning visit this session never flashes the splash on screen.
-      if (sessionStorage.getItem("wt_splash_seen")) {
-        document.currentScript.parentElement.style.display = "none";
-      }
-    </script>
-    <div class="splash-screen__content">
-      <p class="splash-screen__day">Day {{ days_since_start }}</p>
-
-      <div class="splash-screen__hero splash-screen__hero--green">
-        <span class="splash-screen__value">{{ pounds_lost if pounds_lost is not none else '--' }}</span>
-        <span class="splash-screen__label">Lbs Lost</span>
-      </div>
-
-      <div class="splash-screen__row">
-        <div class="splash-screen__stat splash-screen__stat--red">
-          <span class="splash-screen__value splash-screen__value--small">{{ latest_weight|round(1) if latest_weight is not none else '--' }}</span>
-          <span class="splash-screen__label">Current</span>
-        </div>
-        <div class="splash-screen__stat splash-screen__stat--gold">
-          <span class="splash-screen__value splash-screen__value--small">{{ goal_weight|round(1) if goal_weight is not none else '--' }}</span>
-          <span class="splash-screen__label">Goal</span>
-        </div>
-        <div class="splash-screen__stat splash-screen__stat--bmi-{{ bmi_color or 'muted' }}">
-          <span class="splash-screen__value splash-screen__value--small">{{ bmi if bmi is not none else '--' }}</span>
-          <span class="splash-screen__label">BMI</span>
-        </div>
-      </div>
-
-      <p class="splash-screen__hint">Tap anywhere to continue</p>
-    </div>
-  </div>
-
-  <section class="mobile-hero">
-    <div class="mobile-hero__gradient">
-      <p class="mobile-hero__day">Day {{ days_since_start }}</p>
-
-      <div class="mobile-hero__numbers">
-        <div class="mobile-hero__stat mobile-hero__stat--green">
-          <span class="mobile-hero__value">{{ pounds_lost if pounds_lost is not none else '--' }}</span>
-          <span class="mobile-hero__label">Lbs Lost</span>
-        </div>
-        <div class="mobile-hero__stat mobile-hero__stat--red">
-          <span class="mobile-hero__value">{{ latest_weight|round(1) if latest_weight is not none else '--' }}</span>
-          <span class="mobile-hero__label">Current</span>
-        </div>
-        <div class="mobile-hero__stat mobile-hero__stat--gold">
-          {% if goal_weight is not none %}
-            <span class="mobile-hero__value">{{ goal_weight|round(1) }}</span>
-            <span class="mobile-hero__label">Goal</span>
-          {% else %}
-            <span class="mobile-hero__value mobile-hero__value--muted"><a href="{{ url_for('dashboard') }}">Set</a></span>
-            <span class="mobile-hero__label">Goal</span>
-          {% endif %}
-        </div>
-        <div class="mobile-hero__stat mobile-hero__stat--bmi-{{ bmi_color or 'muted' }}">
-          {% if bmi is not none %}
-            <span class="mobile-hero__value">{{ bmi }}</span>
-            <span class="mobile-hero__label">BMI</span>
-          {% else %}
-            <span class="mobile-hero__value mobile-hero__value--muted"><a href="{{ url_for('dashboard') }}">Set</a></span>
-            <span class="mobile-hero__label">BMI</span>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-
-    <div class="mobile-hero__extra">
-      <div class="mobile-hero__extra-stat">
-        <span>{{ streak }}</span>
-        <p>Day Streak</p>
-      </div>
-      <div class="mobile-hero__extra-stat">
-        <span>{{ rolling_avg if rolling_avg is not none else '--' }}</span>
-        <p>7-Day Avg</p>
-      </div>
-      <div class="mobile-hero__extra-stat">
-        <span>{{ lbs_to_goal if lbs_to_goal is not none else '--' }}</span>
-        <p>To Goal</p>
-      </div>
-      <div class="mobile-hero__extra-stat">
-        <span>{{ calories_today if calories_today is not none else 0 }}</span>
-        <p>Cal Today</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="stats-row">
-    <div class="stat-card">
-      <p class="stat-card__label">Weight</p>
-      {% if latest_weight is not none %}
-        <p class="stat-card__value">{{ latest_weight|round(1) }} <span>Lbs</span></p>
-      {% else %}
-        <p class="stat-card__value stat-card__value--muted"><a href="{{ url_for('weigh_in_log') }}">Log One</a></p>
-      {% endif %}
-    </div>
-    <div class="stat-card">
-      <p class="stat-card__label">Streak</p>
-      {% if streak %}
-        <p class="stat-card__value stat-card__value--teal">{{ streak }} <span>Day{{ '' if streak == 1 else 's' }}</span></p>
-      {% else %}
-        <p class="stat-card__value stat-card__value--muted"><a href="{{ url_for('weigh_in_log') }}">Log One</a></p>
-      {% endif %}
-    </div>
-    <div class="stat-card">
-      <p class="stat-card__label">Calories Today</p>
-      <p class="stat-card__value stat-card__value--coral">
-        {{ calories_today if calories_today is not none else 0 }} <span>{{ '/ ' ~ calorie_target ~ ' Cal' if calorie_target else 'Cal' }}</span>
-      </p>
-    </div>
-    <div class="stat-card">
-      <p class="stat-card__label">BMI</p>
-      {% if bmi is not none %}
-        <p class="stat-card__value stat-card__value--bmi-{{ bmi_color }}">{{ bmi }}</p>
-      {% else %}
-        <p class="stat-card__value stat-card__value--muted"><a href="{{ url_for('dashboard') }}">Set Height</a></p>
-      {% endif %}
-    </div>
-  </section>
-
   <section class="hero">
-    <h1>Log Your Food</h1>
-    <p>Pick a meal, say what you had in plain language, and Claude figures out the nutrition and logs it -- no searching, no scanning.</p>
+    <h1>Log</h1>
+    <p>Everything you enter lives here. Everything it adds up to lives on the Dashboard.</p>
   </section>
 
   <section class="search-panel">
@@ -146,7 +23,7 @@
       </button>
       <button type="submit" class="btn">Log It</button>
     </form>
-    <p class="search-status" id="agent-status">Also fixes mistakes -- say what to change and it'll adjust or remove the entry.</p>
+    <p class="search-status" id="agent-status">Also fixes mistakes -- say what to change and it'll adjust or remove the entry. Works for exercise too.</p>
 
     <div class="agent-suggestions" id="agent-suggestions"></div>
   </section>
@@ -168,92 +45,64 @@
     <p class="search-status" id="meal-photo-status">Snap a photo instead -- Claude gives a rough calorie estimate you can adjust afterward.</p>
   </section>
 
-  <section>
-    <div class="library-header">
-      <h2>Today's Timeline</h2>
-      <span class="library-count">{{ log_entries|length }} Entr{{ 'y' if log_entries|length == 1 else 'ies' }}</span>
-    </div>
-
-    {% if log_entries %}
-      <ol class="timeline" id="timeline-list">
-        {% for entry in log_entries %}
-          <li class="timeline__item timeline__item--{{ entry.meal_type }}" data-log-id="{{ entry.id }}">
-            <span class="timeline__dot"></span>
-            <div class="timeline__card">
-              <div class="timeline__main">
-                {% if entry.photos %}
-                  <div class="timeline__photo-strip">
-                    {% for photo in entry.photos %}
-                      <img class="timeline__thumb" src="{{ photo.url }}" alt="" loading="lazy" onerror="this.style.display='none'">
-                    {% endfor %}
-                  </div>
-                {% elif entry.display_photo_url %}
-                  <img class="timeline__thumb" src="{{ entry.display_photo_url }}" alt="" loading="lazy">
-                {% endif %}
-                <div>
-                  <div class="timeline__meta">
-                    <span class="timeline__meal">{{ entry.meal_type|capitalize }}</span>
-                    <span class="timeline__time">{{ entry.logged_at.strftime('%-I:%M %p') }}</span>
-                    {% if entry.is_photo_logged and entry.ai_calories is not none and entry.manual_calories is none %}
-                      <span class="timeline__ai-badge">AI Estimate</span>
-                    {% endif %}
-                  </div>
-                  <p class="timeline__name">{{ entry.display_name }}</p>
-                  {% if entry.protein_g is not none or entry.carbs_g is not none or entry.fat_g is not none %}
-                    <p class="timeline__macros">
-                      {%- if entry.protein_g is not none %}{{ entry.protein_g|round|int }}g Protein{% endif -%}
-                      {%- if entry.carbs_g is not none %} &middot; {{ entry.carbs_g|round|int }}g Carbs{% endif -%}
-                      {%- if entry.fat_g is not none %} &middot; {{ entry.fat_g|round|int }}g Fat{% endif -%}
-                    </p>
-                  {% endif %}
-                </div>
-              </div>
-              <div class="timeline__right">
-                <span class="timeline__cals">{{ entry.calories|round|int if entry.calories is not none else '--' }} Cal</span>
-                {% if entry.is_photo_logged %}
-                  <button
-                    type="button"
-                    class="timeline__edit"
-                    data-adjust-log-id="{{ entry.id }}"
-                    data-adjust-current="{{ entry.calories|round|int if entry.calories is not none else '' }}"
-                    aria-label="Adjust calorie estimate"
-                  >&#9998;</button>
-                {% endif %}
-                <button
-                  type="button"
-                  class="timeline__edit"
-                  data-open-photo-picker="{{ entry.id }}"
-                  data-entry-name="{{ entry.display_name }}"
-                  data-photos="{{ entry.photos_list | tojson | e }}"
-                  aria-label="Add or manage photos"
-                >&#128247;</button>
-                <button type="button" class="timeline__remove" data-delete-log-id="{{ entry.id }}" aria-label="Remove entry">&times;</button>
-              </div>
-            </div>
-          </li>
-        {% endfor %}
-      </ol>
-    {% else %}
-      <div class="empty-state">
-        Nothing logged yet today. Tell the assistant what you had, or log a photo above.
-      </div>
-    {% endif %}
+  <section class="meal-photo-panel">
+    <p class="search-panel__eyebrow">Log Exercise</p>
+    <form id="exercise-form" class="exercise-form">
+      <input type="text" id="exercise-activity" placeholder="e.g. half a mile walk, 20 min bike ride" required>
+      <button type="submit" class="btn">Log It</button>
+    </form>
+    <p class="search-status" id="exercise-status">Claude estimates calories burned using your weight, age, and activity level below.</p>
   </section>
 
-  <div class="modal-backdrop" id="photo-picker-modal">
-    <div class="nutrition-label photo-picker">
-      <button type="button" class="nutrition-label__close" id="photo-picker-close" aria-label="Close">&times;</button>
-      <h3>Add A Photo</h3>
-      <p class="nutrition-label__product" id="photo-picker-entry-name">&mdash;</p>
+  <section class="search-panel">
+    <p class="search-panel__eyebrow">Log Today's Weight</p>
+    <form id="weigh-in-form" class="weigh-in-form">
+      <input type="number" id="weigh-in-weight" step="0.1" min="1" max="1000" placeholder="Weight (lbs)" required>
+      <input type="date" id="weigh-in-date" title="Defaults to today -- pick an earlier date to backfill a past entry">
+      <input type="text" id="weigh-in-notes" placeholder="Optional: sleep, stress, alcohol, anything worth noting">
+      <button type="submit" class="btn">Log It</button>
+    </form>
+    <p class="search-status" id="weigh-in-status">Leave the date blank for today, or pick an earlier one to backfill a past entry -- your streak and "first entry" recalculate automatically.</p>
+  </section>
 
-      <form id="photo-picker-form" class="photo-picker-form">
-        <input type="url" id="photo-picker-url" placeholder="Paste an image URL" required>
-        <button type="submit" class="btn">Add</button>
-      </form>
-      <p class="search-status" id="photo-picker-status"></p>
-
-      <div class="photo-picker-grid" id="photo-picker-grid"></div>
-    </div>
-  </div>
+  <section class="search-panel">
+    <p class="search-panel__eyebrow">Your Profile</p>
+    <form id="profile-form" class="profile-form">
+      <label>
+        Height (In)
+        <input type="number" id="profile-height" min="36" max="96" step="0.5" value="{{ profile.height_in or '' }}">
+      </label>
+      <label>
+        Age
+        <input type="number" id="profile-age" min="13" max="120" value="{{ profile.age or '' }}">
+      </label>
+      <label>
+        Biological Sex
+        <select id="profile-sex">
+          <option value="" disabled {{ 'selected' if not profile.biological_sex else '' }}>Select</option>
+          <option value="male" {{ 'selected' if profile.biological_sex == 'male' else '' }}>Male</option>
+          <option value="female" {{ 'selected' if profile.biological_sex == 'female' else '' }}>Female</option>
+        </select>
+      </label>
+      <label>
+        Activity Level
+        <select id="profile-activity">
+          {% for key, (label, factor) in activity_levels.items() %}
+            <option value="{{ key }}" {{ 'selected' if profile.activity_level == key else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Goal Weight (Lbs)
+        <input type="number" id="profile-goal-weight" min="1" max="1000" step="0.5" value="{{ profile.goal_weight_lbs or '' }}">
+      </label>
+      <label>
+        Program Start Date
+        <input type="date" id="profile-start-date" value="{{ profile.program_start_date.isoformat() if profile.program_start_date else '2026-06-28' }}">
+      </label>
+      <button type="submit" class="btn">Save Profile</button>
+    </form>
+    <p class="search-status" id="profile-status">Height, age, sex, and activity level drive your calorie target and BMI on the Dashboard.</p>
+  </section>
 
 {% endblock %}

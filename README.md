@@ -835,6 +835,90 @@ actual prompts sent to Claude for both and verifying the real data is
 present, not just claimed; also re-ran the existing food-agent test
 suite after the refactor to confirm nothing regressed.
 
+## Timezone bug fixed, navigation rebuilt around Dashboard / Log / Vacation
+
+**The "carryover from yesterday" timeline was a real, provable bug, not
+just a UX complaint.** Root cause: every "today" boundary in the app
+was computed from raw UTC (`datetime.utcnow().date()`), with zero
+timezone conversion. For anyone west of UTC (this user is in Pacific
+time), anything logged after about 5pm local time gets a UTC timestamp
+that's already rolled over to the next UTC calendar day -- so an entry
+logged "last night" shows up in "today's" timeline the next morning,
+and inflates "today's" calorie total right along with it. Proved the
+mechanism by hand first (a 6:42pm Pacific entry lands on UTC's *next*
+calendar date), then reproduced it directly against the app: the same
+entry showed up in "today" with no timezone cookie set, and was
+correctly excluded once one was.
+
+Found this fix already partially built from earlier in the session --
+the low-level timezone-conversion helpers existed, but two critical
+links were missing: (1) the actual frontend piece that detects the
+browser's IANA timezone and sets the cookie the server reads had never
+been written, and (2) several route handlers that enqueue background
+jobs never captured that cookie into the job dict, meaning the
+background worker thread (which has no Flask request context at all)
+would have crashed outright trying to read it. Both are now wired up:
+`resolveTimezone()` in `main.js` sets the `wt_tz` cookie once per
+session (reloading once so the very first page load isn't rendered
+against stale UTC boundaries), and every job-enqueueing route now
+threads `request.cookies.get("wt_tz")` into the job before handing it
+to the worker. Also caught and fixed a dropped variable reference
+(`chart_data` never actually being computed) left over from that same
+partial refactor, and converted three remaining raw-UTC call sites
+(backdating a weigh-in, vacation period bucketing, exercise history
+day-grouping) that had been missed. Timeline and history timestamps now
+also display in local time via new `local_time`/`local_date` Jinja
+filters, instead of showing the raw UTC clock time mislabeled as local.
+
+**Navigation rebuilt around function, not data type.** Per direct
+feedback that mixing "enter a metric" with "see a metric" on the same
+screens made the flow hard to follow, consolidated four pages into
+three: **Dashboard** (every metric, chart, and history list -- entirely
+read-only aside from cleanup actions like deleting a mistaken entry),
+**Log** (every input field in the app -- food, exercise, weigh-in,
+profile settings -- and nothing else), and **Vacation Mode** (unchanged).
+Kept every underlying route and endpoint name alive (so nothing bookmarked
+or linked internally breaks) -- `/weigh-in` now redirects to `/dashboard`
+since its content lives there, and `/food` is still the URL for the Log
+tab, just relabeled and rebuilt. Confirmed the actual separation
+directly: checked that the Dashboard page contains zero `<form>` input
+elements and the Log page contains zero metrics/timeline content, then
+confirmed a real end-to-end flow (save a profile on Log -> BMI updates
+correctly on Dashboard) actually works across the new page boundary.
+
+## Post-restructuring audit: one real dropped feature found and fixed
+
+Went through the whole app systematically rather than spot-checking:
+every `url_for()` in every template verified against the actual route
+map, every route cross-referenced against a JS caller, every element
+ID and `data-*` attribute the JS listens for checked against where it
+now actually lives after the page split, every empty-state link and
+hint string checked for stale references to the old nav.
+
+**Found one real gap**: the weigh-in entries list (with per-entry
+delete) existed on the old standalone Weigh-In page, but when its
+content got merged into the new Dashboard, only the streak/chart/
+milestones came along -- the actual entries list never did. The
+`/weigh-in/<id>/delete` route was still there and working, but nothing
+in the UI could reach it anymore. Confirmed this concretely (logged two
+weigh-ins, checked the delete control literally didn't exist on the
+page) before fixing it -- restored the list under the chart, same
+pattern as Exercise History (view + delete, no new-input fields, so it
+belongs on Dashboard not Log).
+
+Everything else checked out: the handful of "missing" element IDs
+turned out to all be the already-known, already-guarded pantry/
+barcode-scanning leftovers from earlier in the session (harmless,
+intentionally inert, not new); "Today's Exercise" isn't a separate
+section anymore but is still fully visible as the first, "Today"-
+labeled group inside Exercise History rather than actually dropped;
+every JS init function that touches elements now split across two
+pages (the weigh-in form vs. its delete buttons, the profile/exercise
+forms vs. their history views) was already written with `if (element)`
+guards, so calling all of them unconditionally on every page -- which
+the app already did before this restructuring -- continues to work
+correctly with no changes needed there.
+
 ## Running it locally
 
 ```bash

@@ -38,6 +38,38 @@
     setInterval(tick, 1000);
   }
 
+  /* ----------------------------------------------------------------
+     Timezone detection: sets a cookie the server reads for every
+     "today" boundary calculation (timeline, streaks, exercise history,
+     the weight chart's day buckets). Without this, the whole
+     server-side timezone fix silently falls back to UTC and the
+     original bug (evening entries bleeding into "today" a day early)
+     comes right back. Runs once per session unless the detected zone
+     actually changes (e.g. travel), to avoid pointless repeat writes.
+     ---------------------------------------------------------------- */
+
+  function resolveTimezone() {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (!tz) return;
+      const existing = document.cookie.split("; ").find(function (row) {
+        return row.indexOf("wt_tz=") === 0;
+      });
+      const current = existing ? decodeURIComponent(existing.split("=")[1]) : null;
+      if (current === tz) return;
+      document.cookie = "wt_tz=" + encodeURIComponent(tz) + "; path=/; max-age=31536000; SameSite=Lax";
+      // The very first time this fires, prior page state was rendered
+      // against UTC (or whatever the old cookie said) -- reload once so
+      // this page's own "today" boundary reflects the just-set cookie
+      // instead of waiting for the next natural navigation.
+      window.location.reload();
+    } catch (e) {
+      // Intl.DateTimeFormat is universally supported in evergreen
+      // browsers -- if this somehow throws, just leave the server on
+      // its UTC fallback rather than breaking the page.
+    }
+  }
+
   function resolveLocation() {
     const locEl = document.getElementById("stamp-location");
     if (!locEl || !("geolocation" in navigator)) {
@@ -1285,6 +1317,7 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    resolveTimezone();
     startClock();
     resolveLocation();
     initSearch();

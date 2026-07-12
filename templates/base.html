@@ -24,9 +24,8 @@
     </div>
     <nav class="site-nav wrap" aria-label="Primary">
       <ul>
-        <li><a href="{{ url_for('food_library') }}" {% if active_nav == 'food' %}aria-current="page"{% endif %}>Food Library</a></li>
-        <li><a href="{{ url_for('weigh_in_log') }}" {% if active_nav == 'weigh_in' %}aria-current="page"{% endif %}>Weigh-In Log</a></li>
         <li><a href="{{ url_for('dashboard') }}" {% if active_nav == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a></li>
+        <li><a href="{{ url_for('food_library') }}" {% if active_nav == 'log' %}aria-current="page"{% endif %}>Log</a></li>
         <li><a href="{{ url_for('vacation_mode') }}" {% if active_nav == 'vacation' %}aria-current="page"{% endif %}>Vacation Mode</a></li>
       </ul>
     </nav>
