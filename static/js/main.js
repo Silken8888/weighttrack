@@ -1215,7 +1215,6 @@
     if (!splash) return;
 
     splash.addEventListener("click", function () {
-      sessionStorage.setItem("wt_splash_seen", "1");
       splash.style.transition = "opacity 0.25s ease";
       splash.style.opacity = "0";
       setTimeout(function () {

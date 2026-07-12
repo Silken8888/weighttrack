@@ -4,14 +4,6 @@
 {% block content %}
 
   <div id="splash-screen" class="splash-screen">
-    <script>
-      // Runs synchronously as the parser reaches it -- hides this div
-      // immediately, before its remaining children are even parsed, so a
-      // returning visit this session never flashes the splash on screen.
-      if (sessionStorage.getItem("wt_splash_seen")) {
-        document.currentScript.parentElement.style.display = "none";
-      }
-    </script>
     <div class="splash-screen__content">
       <p class="splash-screen__day">Day {{ days_since_start }}</p>
 
@@ -183,7 +175,7 @@
               {% for e in day.entries %}
                 <li class="weigh-in-row">
                   <div>
-                    <p class="weigh-in-row__weight">{{ e.activity }}</p>
+                    <p class="weigh-in-row__weight">{{ e.activity | title_case }}</p>
                     <p class="weigh-in-row__date">{{ e.logged_at | local_time }}</p>
                   </div>
                   <div class="weigh-in-row__right">
@@ -237,7 +229,7 @@
                           <span class="timeline__ai-badge">AI Estimate</span>
                         {% endif %}
                       </div>
-                      <p class="timeline__name">{{ entry.display_name }}</p>
+                      <p class="timeline__name">{{ entry.display_name | title_case }}</p>
                       {% if entry.protein_g is not none or entry.carbs_g is not none or entry.fat_g is not none %}
                         <p class="timeline__macros">
                           {%- if entry.protein_g is not none %}{{ entry.protein_g|round|int }}g Protein{% endif -%}
@@ -254,7 +246,7 @@
                       class="timeline__edit"
                       data-adjust-log-id="{{ entry.id }}"
                       data-adjust-current="{{ entry.calories|round|int if entry.calories is not none else '' }}"
-                      data-adjust-name="{{ entry.display_name }}"
+                      data-adjust-name="{{ entry.display_name | title_case }}"
                       data-adjust-date="{{ entry.logged_at | local_date(fmt='%Y-%m-%d') }}"
                       data-adjust-time="{{ entry.logged_at | local_time(fmt='%H:%M') }}"
                       aria-label="Edit entry"
@@ -263,7 +255,7 @@
                       type="button"
                       class="timeline__edit"
                       data-open-photo-picker="{{ entry.id }}"
-                      data-entry-name="{{ entry.display_name }}"
+                      data-entry-name="{{ entry.display_name | title_case }}"
                       data-photos="{{ entry.photos_list | tojson | e }}"
                       aria-label="Add or manage photos"
                     >&#128247;</button>

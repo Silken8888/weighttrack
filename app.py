@@ -1650,6 +1650,41 @@ def _rolling_average(weigh_ins, as_of, window_days=7, tz=None):
     return sum(values) / len(values)
 
 
+_TITLE_CASE_PREPOSITIONS = {
+    "of", "in", "on", "at", "to", "for", "with", "by", "from", "into",
+    "onto", "over", "under", "per", "via", "within", "without", "about",
+    "above", "across", "after", "against", "along", "among", "around",
+    "before", "behind", "below", "beneath", "beside", "between", "beyond",
+    "during", "except", "inside", "near", "off", "outside", "since",
+    "through", "throughout", "toward", "towards", "underneath", "until", "upon",
+}
+_TITLE_CASE_WORD_RE = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
+
+
+def _title_case(text):
+    """Every word capitalized except prepositions, which stay lowercase
+    unless they're the very first word -- display-only formatting, the
+    underlying stored description is never rewritten. Numbers, percent
+    signs, and punctuation are left exactly as-is; only alphabetic runs
+    are touched, so "100% Whole Wheat" and "Jersey Mike's" both come out
+    right without special-casing them individually.
+    """
+    if not text:
+        return text
+    first_word_seen = False
+
+    def replace(match):
+        nonlocal first_word_seen
+        word = match.group(0)
+        is_first = not first_word_seen
+        first_word_seen = True
+        if not is_first and word.lower() in _TITLE_CASE_PREPOSITIONS:
+            return word.lower()
+        return word[0].upper() + word[1:].lower()
+
+    return _TITLE_CASE_WORD_RE.sub(replace, text)
+
+
 def _calculate_bmi(weight_lbs, height_in):
     """Standard imperial BMI formula: 703 * lbs / inches^2."""
     if not weight_lbs or not height_in:
@@ -1750,6 +1785,10 @@ def register_routes(app):
         if dt is None:
             return ""
         return _to_local_datetime(dt).strftime(fmt)
+
+    @app.template_filter("title_case")
+    def title_case_filter(text):
+        return _title_case(text)
 
     def _all_food_items():
         return db.session.execute(

@@ -1075,6 +1075,28 @@ logged entry (which has a photo through a different field entirely,
 not the manually-attached-photos list) doesn't get wrongly flagged as
 needing one either.
 
+## Splash screen now shows on every load, not just once per session
+
+Removed the "only show once per browser session" logic entirely, per
+direct request -- both the inline script that hid it before paint if
+already dismissed, and the JS that remembered the dismissal. Tapping
+still fades it away for that page view, it just no longer sticks
+across future loads. Confirmed the page renders with zero
+`sessionStorage` references left tied to the splash.
+
+## Entry and activity names now display in title case
+
+Added a display-only title-case formatter -- every word capitalized
+except prepositions (which stay lowercase unless they're the first
+word) -- applied to food entry names and exercise activity names
+wherever they're shown on the Dashboard. Only touches display, never
+rewrites what's actually stored. Tested against every example from the
+request directly: "Jersey Mike's Hot Pepper spread (4 tbsp total (2
+tbsp each sandwich))" correctly becomes "Jersey Mike's Hot Pepper
+Spread (4 Tbsp Total (2 Tbsp Each Sandwich))" -- prepositions ("each")
+stay lowercase, numbers and "%" are left alone, and the possessive
+apostrophe in "Mike's" survives correctly.
+
 ## Running it locally
 
 ```bash
