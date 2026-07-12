@@ -7,7 +7,7 @@ import time
 import uuid
 import threading
 from queue import Queue, Empty
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 import requests
 from flask import Flask, render_template, request, jsonify, abort
@@ -1123,10 +1123,28 @@ def register_routes(app):
         weigh_ins = _all_weigh_ins()
         vacations = _all_vacation_periods()
         latest_weight = weigh_ins[-1].weight_lbs if weigh_ins else None
+        starting_weight = weigh_ins[0].weight_lbs if weigh_ins else None
         streak = _compute_streak(weigh_ins, vacations)
+        rolling_avg = _rolling_average(weigh_ins, datetime.utcnow().date()) if weigh_ins else None
 
         profile = _get_profile()
         calorie_target = profile.calorie_target(latest_weight) if latest_weight else None
+
+        pounds_lost = None
+        if starting_weight is not None and latest_weight is not None:
+            pounds_lost = max(0, round(starting_weight - latest_weight, 1))
+
+        goal_weight = profile.goal_weight_lbs
+        lbs_to_goal = None
+        if goal_weight is not None and latest_weight is not None:
+            lbs_to_goal = round(max(0, latest_weight - goal_weight), 1)
+
+        # June 28, 2026 is the stated program start -- stored on the
+        # profile (editable later on the Dashboard) rather than
+        # hardcoded here, but defaults to that date until they change it
+        # or a profile row with an actual value exists.
+        start_date = profile.program_start_date or date(2026, 6, 28)
+        days_since_start = max(0, (datetime.utcnow().date() - start_date).days)
 
         return {
             "items": _all_food_items(),
@@ -1136,6 +1154,11 @@ def register_routes(app):
             "latest_weight": latest_weight,
             "streak": streak,
             "calorie_target": calorie_target,
+            "pounds_lost": pounds_lost,
+            "goal_weight": goal_weight,
+            "lbs_to_goal": lbs_to_goal,
+            "days_since_start": days_since_start,
+            "rolling_avg": round(rolling_avg, 1) if rolling_avg is not None else None,
         }
 
     @app.route("/")
@@ -1730,6 +1753,22 @@ def register_routes(app):
         if activity not in ACTIVITY_LEVELS:
             return jsonify(error="Invalid activity level"), 400
         profile.activity_level = activity
+
+        raw_goal = payload.get("goal_weight_lbs")
+        if raw_goal not in (None, ""):
+            try:
+                profile.goal_weight_lbs = float(raw_goal)
+            except (TypeError, ValueError):
+                return jsonify(error="Goal weight must be a number"), 400
+        else:
+            profile.goal_weight_lbs = None
+
+        raw_start = (payload.get("program_start_date") or "").strip()
+        if raw_start:
+            try:
+                profile.program_start_date = datetime.fromisoformat(raw_start).date()
+            except ValueError:
+                return jsonify(error="That start date doesn't look right"), 400
 
         db.session.commit()
         return jsonify(profile.to_dict())

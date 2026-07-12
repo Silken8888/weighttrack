@@ -58,6 +58,14 @@
           {% endfor %}
         </select>
       </label>
+      <label>
+        Goal Weight (Lbs)
+        <input type="number" id="profile-goal-weight" min="1" max="1000" step="0.5" value="{{ profile.goal_weight_lbs or '' }}">
+      </label>
+      <label>
+        Program Start Date
+        <input type="date" id="profile-start-date" value="{{ profile.program_start_date.isoformat() if profile.program_start_date else '2026-06-28' }}">
+      </label>
       <button type="submit" class="btn">Save Profile</button>
     </form>
     <p class="search-status" id="profile-status">

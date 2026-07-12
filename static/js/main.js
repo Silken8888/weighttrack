@@ -694,6 +694,8 @@
           age: document.getElementById("profile-age").value,
           biological_sex: document.getElementById("profile-sex").value,
           activity_level: document.getElementById("profile-activity").value,
+          goal_weight_lbs: document.getElementById("profile-goal-weight").value,
+          program_start_date: document.getElementById("profile-start-date").value,
         }, statusEl);
       });
     }

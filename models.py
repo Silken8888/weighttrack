@@ -286,6 +286,8 @@ class UserProfile(db.Model):
     age = db.Column(db.Integer)
     biological_sex = db.Column(db.String(10))  # "male" | "female" -- Mifflin-St Jeor needs this
     activity_level = db.Column(db.String(20), default="sedentary")
+    goal_weight_lbs = db.Column(db.Float)
+    program_start_date = db.Column(db.Date)
 
     def is_complete(self):
         return bool(self.height_in and self.age and self.biological_sex)
@@ -313,6 +315,8 @@ class UserProfile(db.Model):
             "age": self.age,
             "biological_sex": self.biological_sex,
             "activity_level": self.activity_level,
+            "goal_weight_lbs": self.goal_weight_lbs,
+            "program_start_date": self.program_start_date.isoformat() if self.program_start_date else None,
         }
 
 

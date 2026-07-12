@@ -22,6 +22,8 @@
   --teal: #2dd4bf;
   --pink: #ff5fa8;
   --danger: #fb4f4f;
+  --green: #4ade80;
+  --gold: #fbbf24;
 
   --font-display: "Sora", -apple-system, sans-serif;
   --font-body: "Inter", -apple-system, sans-serif;
@@ -897,6 +899,126 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 11px;
   color: var(--text-faint);
   text-align: center;
+}
+
+/* --------------------------------------------------------------------
+   Mobile/tablet hero dashboard
+   Device "detection" here is CSS media queries on actual viewport
+   width -- more robust than user-agent sniffing: it reflects the real
+   available space (works correctly on foldables, rotation, browser
+   window resizing, new devices with no code changes needed) rather
+   than guessing from a device's self-reported identity string.
+   -------------------------------------------------------------------- */
+
+.mobile-hero {
+  display: none; /* shown for mobile/tablet widths below */
+}
+
+@media (max-width: 1024px) {
+  .mobile-hero {
+    display: block;
+    position: relative;
+    overflow: hidden;
+    background: radial-gradient(circle at 50% -20%, rgba(45, 212, 191, 0.18), transparent 60%), var(--surface);
+    border-radius: var(--radius-lg);
+    padding: 22px 18px 20px;
+    margin: 24px 0 28px;
+    animation: pop-in 0.25s ease-out;
+  }
+
+  .mobile-hero__day {
+    display: inline-block;
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: var(--surface-2);
+    padding: 6px 14px;
+    border-radius: var(--radius-pill);
+    margin: 0 0 18px;
+  }
+
+  .mobile-hero__numbers {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    text-align: center;
+  }
+
+  .mobile-hero__stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .mobile-hero__value {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(30px, 9vw, 44px);
+    line-height: 1;
+    letter-spacing: -0.01em;
+  }
+
+  .mobile-hero__value--muted {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .mobile-hero__value--muted a {
+    color: inherit;
+    text-decoration: underline;
+  }
+
+  .mobile-hero__label {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .mobile-hero__stat--green .mobile-hero__value { color: var(--green); }
+  .mobile-hero__stat--red .mobile-hero__value { color: var(--danger); }
+  .mobile-hero__stat--gold .mobile-hero__value { color: var(--gold); }
+
+  .mobile-hero__extra {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--surface-2);
+  }
+
+  .mobile-hero__extra-stat {
+    text-align: center;
+  }
+
+  .mobile-hero__extra-stat span {
+    display: block;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--text);
+  }
+
+  .mobile-hero__extra-stat p {
+    font-family: var(--font-body);
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-faint);
+    margin: 2px 0 0;
+  }
+}
+
+@media (max-width: 380px) {
+  .mobile-hero__extra { grid-template-columns: repeat(2, 1fr); row-gap: 14px; }
 }
 
 /* --------------------------------------------------------------------

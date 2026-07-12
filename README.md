@@ -536,6 +536,32 @@ still got the photo; attached a second, different photo to the same
 name and confirmed both appear in the correct order; re-added a
 duplicate URL and confirmed the memory doesn't store it twice.
 
+## Mobile/tablet hero dashboard, goal weight, program start date
+
+**Device detection**: used CSS media queries on actual viewport width
+rather than user-agent sniffing -- more robust (works correctly through
+window resizing, rotation, foldables, and any future device with zero
+code changes, unlike matching against a device's self-reported identity
+string). Below 1024px width, a big-number hero dashboard appears at the
+top of the Food Library page; above it, the existing layout is
+unchanged.
+
+**The hero shows**: pounds lost (green, starting weight minus current,
+floored at 0), current weight (red), goal weight (gold, or a "Set" link
+to the Dashboard if none is set yet), and a secondary row of streak,
+7-day average, lbs to goal, and today's calories. "Day N" badge at top
+counts from a program start date, defaulting to June 28, 2026 as
+requested -- stored on the profile (not hardcoded elsewhere) and
+editable later from the Dashboard.
+
+Added `goal_weight_lbs` and `program_start_date` to `UserProfile` (both
+new fields on the Dashboard's profile form) to support this. Tested the
+actual math end-to-end with real weigh-in data (190 -> 175 lbs, goal
+160, start date June 28): confirmed 15.0 lbs lost, 15.0 lbs to goal, and
+14 days since start all compute and render correctly on the real page,
+plus confirmed the empty-state (no weigh-ins or goal set yet) renders
+without crashing.
+
 ## Running it locally
 
 ```bash
