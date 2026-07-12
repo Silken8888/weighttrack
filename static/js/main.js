@@ -722,11 +722,15 @@
      plain language, Claude estimates nutrition and logs each distinct
      item directly. Also shows "recently logged for this meal" chips so
      repeating yesterday's breakfast is one tap, not retyping it.
+
+     Parameterized by element IDs so the exact same logic drives both
+     the inline Food Library form and the floating assistant modal
+     (which exists on every page) without ID collisions between them.
      ---------------------------------------------------------------- */
 
-  function loadAgentSuggestions() {
-    const mealType = document.getElementById("agent-meal-type");
-    const container = document.getElementById("agent-suggestions");
+  function loadAgentSuggestions(ids) {
+    const mealType = document.getElementById(ids.mealType);
+    const container = document.getElementById(ids.suggestions);
     if (!mealType || !container) return;
 
     fetch("/agent/recent-meals?meal_type=" + encodeURIComponent(mealType.value))
@@ -776,7 +780,7 @@
       .catch(function () { /* suggestions are a nice-to-have -- fail quietly */ });
   }
 
-  function pollAgentMessage(jobId, statusEl, defaultText, attempt) {
+  function pollAgentMessage(jobId, statusEl, attempt) {
     const MAX_ATTEMPTS = 55;
 
     fetch("/food/search/status/" + jobId)
@@ -788,7 +792,7 @@
             return;
           }
           setTimeout(function () {
-            pollAgentMessage(jobId, statusEl, defaultText, attempt + 1);
+            pollAgentMessage(jobId, statusEl, attempt + 1);
           }, 700);
           return;
         }
@@ -806,20 +810,18 @@
       });
   }
 
-  function initAgentForm() {
-    const form = document.getElementById("agent-form");
-    const mealType = document.getElementById("agent-meal-type");
-    const statusEl = document.getElementById("agent-status");
+  function setupAgentForm(ids) {
+    const form = document.getElementById(ids.form);
+    const mealType = document.getElementById(ids.mealType);
+    const statusEl = document.getElementById(ids.status);
     if (!form || !mealType || !statusEl) return;
 
-    const defaultText = statusEl.textContent;
-
-    mealType.addEventListener("change", loadAgentSuggestions);
-    loadAgentSuggestions();
+    mealType.addEventListener("change", function () { loadAgentSuggestions(ids); });
+    loadAgentSuggestions(ids);
 
     form.addEventListener("submit", function (evt) {
       evt.preventDefault();
-      const input = document.getElementById("agent-message");
+      const input = document.getElementById(ids.message);
       const message = input.value.trim();
       if (!message) return;
 
@@ -835,11 +837,59 @@
           return res.json();
         })
         .then(function (data) {
-          pollAgentMessage(data.job_id, statusEl, defaultText, 0);
+          pollAgentMessage(data.job_id, statusEl, 0);
         })
         .catch(function (err) {
           setStatus(statusEl, "error", err.message);
         });
+    });
+  }
+
+  function initAgentForm() {
+    setupAgentForm({
+      form: "agent-form",
+      mealType: "agent-meal-type",
+      message: "agent-message",
+      status: "agent-status",
+      suggestions: "agent-suggestions",
+    });
+  }
+
+  function initAgentFab() {
+    const fab = document.getElementById("agent-fab");
+    const backdrop = document.getElementById("agent-fab-backdrop");
+    const closeBtn = document.getElementById("agent-fab-close");
+    if (!fab || !backdrop) return;
+
+    let wired = false;
+
+    fab.addEventListener("click", function () {
+      backdrop.classList.add("is-open");
+      if (!wired) {
+        // Set up the modal's own form the first time it's opened, not on
+        // every page load -- it's identical logic to the page form, just
+        // pointed at the fab-prefixed element IDs.
+        setupAgentForm({
+          form: "fab-agent-form",
+          mealType: "fab-agent-meal-type",
+          message: "fab-agent-message",
+          status: "fab-agent-status",
+          suggestions: "fab-agent-suggestions",
+        });
+        wired = true;
+      }
+    });
+
+    function close() {
+      backdrop.classList.remove("is-open");
+    }
+
+    if (closeBtn) closeBtn.addEventListener("click", close);
+    backdrop.addEventListener("click", function (evt) {
+      if (evt.target === backdrop) close();
+    });
+    document.addEventListener("keydown", function (evt) {
+      if (evt.key === "Escape") close();
     });
   }
 
@@ -858,5 +908,6 @@
     initVacationPage();
     initDashboardPage();
     initAgentForm();
+    initAgentFab();
   });
 })();

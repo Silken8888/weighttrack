@@ -973,14 +973,23 @@ button { font-family: inherit; cursor: pointer; }
   display: block;
 }
 
-.chart-panel__range {
-  display: flex;
-  justify-content: space-between;
-  font-family: var(--font-body);
-  font-size: 11px;
-  color: var(--text-faint);
-  margin-top: 6px;
+.chart-panel__body {
+  position: relative;
 }
+
+.chart-panel__axis-label {
+  position: absolute;
+  right: 0;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 10px;
+  color: var(--text-faint);
+  background: var(--surface);
+  padding: 2px 4px;
+}
+
+.chart-panel__axis-label--top { top: 0; }
+.chart-panel__axis-label--bottom { bottom: 0; }
 
 .weigh-in-list {
   list-style: none;
@@ -1118,6 +1127,65 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 10px;
   color: var(--text-faint);
   margin: 2px 0 0;
+}
+
+/* --------------------------------------------------------------------
+   Floating assistant button
+   -------------------------------------------------------------------- */
+
+.agent-fab {
+  position: fixed;
+  right: 20px;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--coral);
+  color: var(--bg);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  z-index: 200;
+}
+
+.agent-fab:hover { opacity: 0.92; }
+
+.agent-fab-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 12, 0.6);
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  z-index: 300;
+}
+
+.agent-fab-backdrop.is-open { display: flex; }
+
+.agent-fab-modal {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 20px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+  animation: pop-in 0.18s ease-out;
+}
+
+@media (min-width: 640px) {
+  .agent-fab-backdrop { align-items: center; padding: 20px; }
+  .agent-fab-modal { border-radius: var(--radius-lg); max-height: 70vh; }
+}
+
+.agent-fab-modal__close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
 }
 
 /* --------------------------------------------------------------------

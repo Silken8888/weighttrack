@@ -53,13 +53,13 @@
   {% if chart %}
     <section class="chart-panel">
       <p class="search-panel__eyebrow">7-Day Rolling Average</p>
-      <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" class="weigh-in-chart" role="img" aria-label="7-day rolling average weight trend">
-        <polyline points="{{ chart.polyline_points }}" fill="none" stroke="#2dd4bf" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-        <circle cx="{{ chart.last_x }}" cy="{{ chart.last_y }}" r="4.5" fill="#2dd4bf" />
-      </svg>
-      <div class="chart-panel__range">
-        <span>{{ chart.lo }} Lbs</span>
-        <span>{{ chart.hi }} Lbs</span>
+      <div class="chart-panel__body">
+        <span class="chart-panel__axis-label chart-panel__axis-label--top">{{ chart.hi }} Lbs</span>
+        <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" class="weigh-in-chart" role="img" aria-label="7-day rolling average weight trend, higher values at top">
+          <polyline points="{{ chart.polyline_points }}" fill="none" stroke="#2dd4bf" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+          <circle cx="{{ chart.last_x }}" cy="{{ chart.last_y }}" r="4.5" fill="#2dd4bf" />
+        </svg>
+        <span class="chart-panel__axis-label chart-panel__axis-label--bottom">{{ chart.lo }} Lbs</span>
       </div>
     </section>
   {% endif %}

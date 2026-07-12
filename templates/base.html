@@ -41,6 +41,31 @@
     <div class="wrap">WeighTrack &middot; personal build &middot; nutrition data via Open Food Facts</div>
   </footer>
 
+  <button type="button" id="agent-fab" class="agent-fab" aria-label="Ask the assistant">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 4h16v12H7l-3 3V4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+  </button>
+
+  <div class="agent-fab-backdrop" id="agent-fab-backdrop">
+    <div class="agent-fab-modal">
+      <button type="button" class="nutrition-label__close agent-fab-modal__close" id="agent-fab-close" aria-label="Close">&times;</button>
+      <p class="search-panel__eyebrow">Ask The Assistant</p>
+      <form id="fab-agent-form" class="agent-form">
+        <select id="fab-agent-meal-type">
+          <option value="breakfast">Breakfast</option>
+          <option value="lunch">Lunch</option>
+          <option value="dinner">Dinner</option>
+          <option value="snack" selected>Snack</option>
+        </select>
+        <input type="text" id="fab-agent-message" placeholder="e.g. two eggs, toast, coffee" autocomplete="off">
+        <button type="submit" class="btn">Log It</button>
+      </form>
+      <p class="search-status" id="fab-agent-status">Works from any page -- logs straight to today's timeline.</p>
+      <div class="agent-suggestions" id="fab-agent-suggestions"></div>
+    </div>
+  </div>
+
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
