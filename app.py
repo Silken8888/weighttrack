@@ -1665,6 +1665,26 @@ def _weigh_in_chart_data(weigh_ins, tz=None):
 
 def register_routes(app):
 
+    @app.context_processor
+    def inject_asset_version():
+        """Cache-busting for static assets, based on each file's real
+        modification time. Confirmed as a real, live risk: this app's
+        JS/CSS changed on nearly every redeploy tonight, but nothing
+        forced browsers to fetch the new copies -- a browser could keep
+        serving a stale cached main.js indefinitely, meaning a shipped
+        fix silently never actually runs until the person happens to
+        hard-refresh. Recomputed fresh on every request rather than
+        cached at startup, so it's correct even if a file changes
+        without a full app restart.
+        """
+        def asset_version(rel_path):
+            try:
+                full_path = os.path.join(app.static_folder, rel_path)
+                return str(int(os.path.getmtime(full_path)))
+            except OSError:
+                return "1"
+        return {"asset_version": asset_version}
+
     @app.template_filter("local_time")
     def local_time_filter(dt, fmt="%-I:%M %p"):
         """Displays a stored (UTC-naive) datetime in the user's actual

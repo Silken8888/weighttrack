@@ -919,6 +919,32 @@ guards, so calling all of them unconditionally on every page -- which
 the app already did before this restructuring -- continues to work
 correctly with no changes needed there.
 
+## Likely real cause of the timeline bug persisting: stale cached JS
+
+Re-verified the timezone fix's backend logic first, from scratch,
+before assuming anything about the browser: reproduced the exact
+scenario again (a yesterday-evening Pacific entry) with the `wt_tz`
+cookie set, and confirmed it's correctly excluded from "today." The
+server-side fix holds.
+
+That points at the browser never actually running the *new*
+`resolveTimezone()` code that sets the cookie in the first place --
+almost certainly stale caching of `main.js`. This file changed on
+nearly every redeploy tonight, but nothing ever forced a browser to
+fetch the new copy instead of serving whatever it cached from an
+earlier visit; a shipped fix could sit there completely inert until a
+manual hard refresh happened to clear it, with no signal anywhere that
+this was the problem. Added real cache-busting: static asset URLs now
+carry a `?v=<mtime>` query string computed fresh per request from each
+file's actual last-modified time, so any future deploy is guaranteed to
+invalidate the browser's cached copy automatically. Confirmed the
+version string changes when the file's mtime changes, which is exactly
+what happens on every real deploy.
+
+If the timeline issue is still showing after this deploy, a hard
+refresh (Cmd+Shift+R / Ctrl+Shift+R) once should clear out whatever's
+currently cached; every deploy after this one won't need that.
+
 ## Running it locally
 
 ```bash
