@@ -916,6 +916,27 @@
      only if something actually changed.
      ---------------------------------------------------------------- */
 
+  /* ----------------------------------------------------------------
+     Splash screen: tap anywhere to dismiss into the real app,
+     remembered for the rest of this browser session via sessionStorage
+     (not localStorage -- a fresh visit next session should see it
+     again, this is a "welcome back" moment, not a permanent dismissal).
+     ---------------------------------------------------------------- */
+
+  function initSplashScreen() {
+    const splash = document.getElementById("splash-screen");
+    if (!splash) return;
+
+    splash.addEventListener("click", function () {
+      sessionStorage.setItem("wt_splash_seen", "1");
+      splash.style.transition = "opacity 0.25s ease";
+      splash.style.opacity = "0";
+      setTimeout(function () {
+        splash.style.display = "none";
+      }, 250);
+    });
+  }
+
   function initPhotoPicker() {
     const modal = document.getElementById("photo-picker-modal");
     const closeBtn = document.getElementById("photo-picker-close");
@@ -1078,5 +1099,6 @@
     initAgentForm();
     initAgentFab();
     initPhotoPicker();
+    initSplashScreen();
   });
 })();

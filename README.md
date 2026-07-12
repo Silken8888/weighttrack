@@ -595,6 +595,29 @@ number style. Secondary stats (streak, 7-day average, etc.) stay on the
 plain dark surface below, so the radiant moment doesn't get diluted
 across seven numbers.
 
+## Chip resize + splash screen on first load
+
+**Chips shrunk significantly**: padding cut from 14px to 6px, font size
+from clamp(22-30px) down to clamp(15-20px) -- much more compact, per
+direct feedback from a live screenshot showing them too large.
+
+**New: splash screen on first load (mobile/tablet only).** Loading the
+app fresh now shows a full-screen glanceable view of the core stats
+(day counter, lbs lost as the big hero number, current and goal below
+it) -- tap anywhere to dismiss into the real app underneath. Remembered
+for the rest of the browser session via `sessionStorage` (not
+`localStorage` -- a fresh session should see it again; this is a
+"welcome back" moment, not a permanent one-time thing).
+
+Avoided a flash-of-splash on repeat page loads within the same session
+by hiding it synchronously: a tiny inline script sits as the *first
+child* inside the splash div itself and checks `sessionStorage`
+immediately as the parser reaches it, before the rest of the div's
+content is even parsed -- not `document.write` (a legacy pattern with
+real gotchas if ever called post-load), just `document.currentScript.
+parentElement.style.display = "none"`, which is safe and synchronous
+here since it always runs during initial page parse.
+
 ## Running it locally
 
 ```bash

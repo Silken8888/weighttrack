@@ -3,6 +3,38 @@
 
 {% block content %}
 
+  <div id="splash-screen" class="splash-screen">
+    <script>
+      // Runs synchronously as the parser reaches it -- hides this div
+      // immediately, before its remaining children are even parsed, so a
+      // returning visit this session never flashes the splash on screen.
+      if (sessionStorage.getItem("wt_splash_seen")) {
+        document.currentScript.parentElement.style.display = "none";
+      }
+    </script>
+    <div class="splash-screen__content">
+      <p class="splash-screen__day">Day {{ days_since_start }}</p>
+
+      <div class="splash-screen__hero splash-screen__hero--green">
+        <span class="splash-screen__value">{{ pounds_lost if pounds_lost is not none else '--' }}</span>
+        <span class="splash-screen__label">Lbs Lost</span>
+      </div>
+
+      <div class="splash-screen__row">
+        <div class="splash-screen__stat splash-screen__stat--red">
+          <span class="splash-screen__value splash-screen__value--small">{{ latest_weight|round(1) if latest_weight is not none else '--' }}</span>
+          <span class="splash-screen__label">Current</span>
+        </div>
+        <div class="splash-screen__stat splash-screen__stat--gold">
+          <span class="splash-screen__value splash-screen__value--small">{{ goal_weight|round(1) if goal_weight is not none else '--' }}</span>
+          <span class="splash-screen__label">Goal</span>
+        </div>
+      </div>
+
+      <p class="splash-screen__hint">Tap anywhere to continue</p>
+    </div>
+  </div>
+
   <section class="mobile-hero">
     <div class="mobile-hero__gradient">
       <p class="mobile-hero__day">Day {{ days_since_start }}</p>

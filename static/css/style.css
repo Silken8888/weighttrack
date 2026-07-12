@@ -914,6 +914,96 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 /* --------------------------------------------------------------------
+   Splash screen -- shown once per browser session on mobile/tablet,
+   tap anywhere to dismiss into the real app. Desktop never sees it.
+   -------------------------------------------------------------------- */
+
+.splash-screen {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .splash-screen {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    align-items: center;
+    justify-content: center;
+    background: #18181f;
+    cursor: pointer;
+  }
+
+  .splash-screen__content {
+    text-align: center;
+    padding: 0 24px;
+  }
+
+  .splash-screen__day {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 0 0 20px;
+  }
+
+  .splash-screen__hero {
+    margin: 0 0 28px;
+  }
+
+  .splash-screen__hero .splash-screen__value {
+    font-size: clamp(56px, 22vw, 88px);
+  }
+
+  .splash-screen__row {
+    display: flex;
+    gap: 40px;
+    justify-content: center;
+    margin: 0 0 40px;
+  }
+
+  .splash-screen__value {
+    display: block;
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .splash-screen__value--small {
+    font-size: clamp(28px, 9vw, 36px);
+  }
+
+  .splash-screen__hero--green .splash-screen__value { color: var(--green); }
+  .splash-screen__stat--red .splash-screen__value { color: #fb6f6f; }
+  .splash-screen__stat--gold .splash-screen__value { color: var(--gold); }
+
+  .splash-screen__label {
+    display: block;
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-top: 6px;
+  }
+
+  .splash-screen__hint {
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--text-faint);
+    animation: splash-pulse 2s ease-in-out infinite;
+  }
+}
+
+@keyframes splash-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* --------------------------------------------------------------------
    Mobile/tablet hero dashboard
    Device "detection" here is CSS media queries on actual viewport
    width -- more robust than user-agent sniffing: it reflects the real
@@ -938,13 +1028,13 @@ button { font-family: inherit; cursor: pointer; }
     overflow: hidden;
     background: linear-gradient(100deg, var(--teal), var(--pink), var(--coral));
     border-radius: var(--radius-lg);
-    padding: 18px 12px;
+    padding: 12px 8px;
   }
 
   .mobile-hero__day {
     display: block;
     width: fit-content;
-    margin: 0 auto 16px;
+    margin: 0 auto 10px;
     font-family: var(--font-body);
     font-weight: 600;
     font-size: 10px;
@@ -966,16 +1056,16 @@ button { font-family: inherit; cursor: pointer; }
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    gap: 1px;
     background: rgba(20, 20, 26, 0.75);
-    border-radius: var(--radius-md);
-    padding: 14px 4px;
+    border-radius: var(--radius-sm);
+    padding: 6px 4px;
   }
 
   .mobile-hero__value {
     font-family: var(--font-display);
     font-weight: 600;
-    font-size: clamp(22px, 7vw, 30px);
+    font-size: clamp(15px, 5vw, 20px);
     line-height: 1;
   }
 
