@@ -1176,6 +1176,23 @@ button { font-family: inherit; cursor: pointer; }
   flex-wrap: wrap;
 }
 
+.exercise-form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.exercise-form input[type="text"] {
+  flex: 1 1 220px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 .agent-form select {
   font-family: var(--font-body);
   font-weight: 600;

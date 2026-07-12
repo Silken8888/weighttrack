@@ -705,10 +705,26 @@
       exerciseForm.addEventListener("submit", function (evt) {
         evt.preventDefault();
         const statusEl = document.getElementById("exercise-status");
-        postJSON("/exercise/add", {
-          activity: document.getElementById("exercise-activity").value.trim(),
-          calories_burned: document.getElementById("exercise-calories").value,
-        }, statusEl);
+        const activity = document.getElementById("exercise-activity").value.trim();
+        if (!activity) return;
+
+        setStatus(statusEl, "pending", "Estimating based on your profile\u2026");
+
+        fetch("/exercise/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ activity: activity }),
+        })
+          .then(function (res) {
+            if (!res.ok) return res.json().then(function (b) { throw new Error(b.error || "Couldn't log that."); });
+            return res.json();
+          })
+          .then(function (data) {
+            pollExerciseEstimate(data.job_id, statusEl, 0);
+          })
+          .catch(function (err) {
+            setStatus(statusEl, "error", err.message);
+          });
       });
     }
 
@@ -717,6 +733,37 @@
         postDelete("/exercise/" + btn.dataset.deleteExerciseId + "/delete");
       });
     });
+  }
+
+  function pollExerciseEstimate(jobId, statusEl, attempt) {
+    const MAX_ATTEMPTS = 55;
+
+    fetch("/food/search/status/" + jobId)
+      .then(function (res) { return res.json(); })
+      .then(function (job) {
+        if (job.status === "pending") {
+          if (attempt >= MAX_ATTEMPTS) {
+            setStatus(statusEl, "error", "This is taking longer than expected -- check back shortly.");
+            return;
+          }
+          setTimeout(function () {
+            pollExerciseEstimate(jobId, statusEl, attempt + 1);
+          }, 700);
+          return;
+        }
+
+        if (job.status === "error") {
+          setStatus(statusEl, "error", job.error || "Couldn't log that.");
+          return;
+        }
+
+        const cal = job.entry ? Math.round(job.entry.calories_burned) : null;
+        setStatus(statusEl, "done", cal !== null ? ("Logged \u2248" + cal + " calories burned.") : "Logged.");
+        setTimeout(function () { window.location.reload(); }, 1200);
+      })
+      .catch(function () {
+        setStatus(statusEl, "error", "Lost track of that -- check back shortly.");
+      });
   }
 
   /* ----------------------------------------------------------------

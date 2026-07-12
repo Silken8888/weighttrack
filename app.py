@@ -702,6 +702,87 @@ def _run_photo_job(app, job):
     }, None
 
 
+def _run_exercise_estimate(app, job):
+    """Estimate calories burned for a described activity ('half a mile
+    walk'), personalized against the user's actual profile -- weight in
+    particular is a real, physiologically meaningful factor in exercise
+    calorie burn (a heavier person burns more calories for the same
+    walk), not just a nicety. Creates the ExerciseEntry directly with
+    the AI's estimate, same pattern as the meal-photo calorie guess.
+    """
+    activity_text = job["activity"]
+
+    with app.app_context():
+        profile = db.session.get(UserProfile, 1)
+        weigh_ins = db.session.execute(
+            db.select(WeighIn).order_by(WeighIn.logged_at.desc()).limit(1)
+        ).scalars().all()
+        latest_weight = weigh_ins[0].weight_lbs if weigh_ins else None
+
+        profile_bits = []
+        if latest_weight is not None:
+            profile_bits.append(f"weight {latest_weight} lbs")
+        if profile and profile.age:
+            profile_bits.append(f"age {profile.age}")
+        if profile and profile.biological_sex:
+            profile_bits.append(f"biological sex {profile.biological_sex}")
+        if profile and profile.activity_level:
+            label = ACTIVITY_LEVELS.get(profile.activity_level, (profile.activity_level,))[0]
+            profile_bits.append(f"general activity level {label}")
+        profile_context = ", ".join(profile_bits) if profile_bits else "not provided -- use general averages"
+
+    payload = {
+        "model": app.config["ANTHROPIC_MEAL_MODEL"],
+        "max_tokens": 300,
+        "messages": [{
+            "role": "user",
+            "content": (
+                "Estimate calories burned for a described exercise activity, "
+                "for a personal fitness tracker -- not medical advice, a "
+                "single best rough estimate. Body weight is the single "
+                "biggest factor in exercise calorie burn (heavier people "
+                "burn more for the same activity), so use it directly -- a "
+                "standard MET-based approach (calories \u2248 MET x weight_kg "
+                "x duration_hours) is a reasonable method if you can infer a "
+                "duration; if duration or pace isn't stated, use a typical "
+                "reasonable assumption for that activity and say so briefly "
+                "in the note.\n\n"
+                f"User's profile: {profile_context}.\n\n"
+                f'Activity described: "{activity_text}"\n\n'
+                "Respond with ONLY a JSON object, no markdown fences, no "
+                'other text: {"calories": <integer>, "note": "<short note '
+                'on any assumption you made, e.g. pace or duration, or an '
+                'empty string if none needed>"}'
+            ),
+        }],
+    }
+
+    data, error = _call_claude(app, payload)
+    if data is None:
+        return None, error
+
+    raw_text = _extract_claude_text(data)
+    try:
+        parsed = _parse_json_from_claude(raw_text)
+        calories = int(parsed["calories"]) if parsed.get("calories") is not None else None
+        note = (parsed.get("note") or "").strip() or None
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+        match = re.search(r"\d+", raw_text)
+        calories = int(match.group()) if match else None
+        note = None
+
+    if calories is None:
+        return None, "Got a response from the AI but couldn't read a calorie number from it."
+
+    with app.app_context():
+        entry = ExerciseEntry(activity=activity_text, calories_burned=calories)
+        db.session.add(entry)
+        db.session.commit()
+        result = entry.to_dict()
+
+    return {"entry": result, "note": note}, None
+
+
 def _run_meal_photo_job(app, job):
     """Upload a meal photo to Bunny.net, ask Claude for a rough calorie
     estimate, and create the FoodLogEntry directly (unlike food search,
@@ -959,6 +1040,8 @@ def _search_worker(app):
                 outcome, error = _run_meal_photo_job(app, job)
             elif job["kind"] == "agent_message":
                 outcome, error = _run_food_agent(app, job)
+            elif job["kind"] == "exercise_estimate":
+                outcome, error = _run_exercise_estimate(app, job)
             else:
                 outcome, error = _run_text_job(app, job)
 
@@ -1775,21 +1858,31 @@ def register_routes(app):
 
     @app.route("/exercise/add", methods=["POST"])
     def exercise_add():
+        """Describe the activity, Claude estimates calories burned using
+        your actual weight/age/sex/activity level -- not a generic
+        lookup table. Same background-job pattern as everything else
+        that calls an external API.
+        """
         payload = request.get_json(silent=True) or {}
         activity = (payload.get("activity") or "").strip()
         if not activity:
-            return jsonify(error="Name the activity"), 400
-        try:
-            calories_burned = float(payload.get("calories_burned"))
-        except (TypeError, ValueError):
-            return jsonify(error="Enter calories burned as a number"), 400
-        if calories_burned < 0:
-            return jsonify(error="Calories burned can't be negative"), 400
+            return jsonify(error="Describe the activity first"), 400
+        if len(activity) > 500:
+            return jsonify(error="That's a lot -- try a shorter description"), 400
 
-        entry = ExerciseEntry(activity=activity, calories_burned=calories_burned)
-        db.session.add(entry)
-        db.session.commit()
-        return jsonify(entry.to_dict()), 201
+        job_id = uuid.uuid4().hex
+        with _jobs_lock:
+            _jobs[job_id] = {
+                "kind": "exercise_estimate",
+                "status": "pending",
+                "activity": activity,
+                "created_at": datetime.utcnow(),
+                "results": None,
+                "error": None,
+            }
+        _search_queue.put(job_id)
+
+        return jsonify(job_id=job_id), 202
 
     @app.route("/exercise/<int:entry_id>/delete", methods=["POST"])
     def exercise_delete(entry_id):

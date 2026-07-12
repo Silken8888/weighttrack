@@ -562,6 +562,24 @@ actual math end-to-end with real weigh-in data (190 -> 175 lbs, goal
 plus confirmed the empty-state (no weigh-ins or goal set yet) renders
 without crashing.
 
+## Exercise logging now AI-estimated, personalized to your profile
+
+The manual "Cal burned" number field is gone. Describe the activity
+("half a mile walk") and Claude estimates the calories using your
+actual weight (from your latest weigh-in), age, biological sex, and
+activity level from the Dashboard profile above it -- weight in
+particular is a real, physiologically meaningful input to exercise
+calorie burn (a heavier person burns more for the same walk), not
+window dressing. Same background-job pattern as every other AI feature
+in the app -- the request handler returns instantly regardless of how
+long the Claude call takes.
+
+Confirmed two things directly before shipping: (1) captured the actual
+prompt sent to Claude and verified the real profile data (weight, age,
+sex) is genuinely present in it, not just claimed, and (2) confirmed it
+still works with a sensible generic fallback when no profile or
+weigh-in data exists yet, rather than failing outright.
+
 ## Running it locally
 
 ```bash
