@@ -860,6 +860,122 @@
     });
   }
 
+  /* ----------------------------------------------------------------
+     Photo picker: Plex-poster-picker style. Paste a URL, it's added to
+     that entry's thumbnail row; several can be added in one session.
+     No page reload while the modal's open -- only when it's closed, and
+     only if something actually changed.
+     ---------------------------------------------------------------- */
+
+  function initPhotoPicker() {
+    const modal = document.getElementById("photo-picker-modal");
+    const closeBtn = document.getElementById("photo-picker-close");
+    const nameEl = document.getElementById("photo-picker-entry-name");
+    const grid = document.getElementById("photo-picker-grid");
+    const form = document.getElementById("photo-picker-form");
+    const urlInput = document.getElementById("photo-picker-url");
+    const statusEl = document.getElementById("photo-picker-status");
+    if (!modal || !form || !grid) return;
+
+    let currentEntryId = null;
+    let changed = false;
+
+    function renderPhoto(photo) {
+      const item = document.createElement("div");
+      item.className = "photo-picker-item";
+      item.dataset.photoId = photo.id;
+
+      const img = document.createElement("img");
+      img.src = photo.url;
+      img.alt = "";
+      img.loading = "lazy";
+      item.appendChild(img);
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.textContent = "\u00d7";
+      removeBtn.setAttribute("aria-label", "Remove photo");
+      removeBtn.addEventListener("click", function () {
+        fetch("/log/" + currentEntryId + "/photos/" + photo.id + "/delete", { method: "POST" })
+          .then(function (res) {
+            if (!res.ok) throw new Error("remove failed");
+            item.remove();
+            changed = true;
+          })
+          .catch(function () {
+            window.alert("Couldn't remove that photo -- try again.");
+          });
+      });
+      item.appendChild(removeBtn);
+
+      grid.appendChild(item);
+    }
+
+    document.querySelectorAll("[data-open-photo-picker]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        currentEntryId = btn.dataset.openPhotoPicker;
+        nameEl.textContent = btn.dataset.entryName || "";
+        grid.innerHTML = "";
+        statusEl.textContent = "";
+        urlInput.value = "";
+
+        let photos = [];
+        try {
+          photos = JSON.parse(btn.dataset.photos || "[]");
+        } catch (e) { /* ignore malformed data, just show an empty grid */ }
+        photos.forEach(renderPhoto);
+
+        modal.classList.add("is-open");
+      });
+    });
+
+    form.addEventListener("submit", function (evt) {
+      evt.preventDefault();
+      const url = urlInput.value.trim();
+      if (!url || !currentEntryId) return;
+
+      const submitBtn = form.querySelector("button[type=submit]");
+      submitBtn.disabled = true;
+      statusEl.textContent = "Adding\u2026";
+
+      fetch("/log/" + currentEntryId + "/photos/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url }),
+      })
+        .then(function (res) {
+          return res.json().then(function (body) {
+            if (!res.ok) throw new Error(body.error || "Couldn't add that photo.");
+            return body;
+          });
+        })
+        .then(function (photo) {
+          renderPhoto(photo);
+          urlInput.value = "";
+          statusEl.textContent = "";
+          changed = true;
+        })
+        .catch(function (err) {
+          statusEl.textContent = err.message;
+        })
+        .finally(function () {
+          submitBtn.disabled = false;
+        });
+    });
+
+    function close() {
+      modal.classList.remove("is-open");
+      if (changed) {
+        window.location.reload();
+      }
+    }
+
+    if (closeBtn) closeBtn.addEventListener("click", close);
+    modal.addEventListener("click", function (evt) {
+      if (evt.target === modal) close();
+    });
+  }
+
   function initAgentFab() {
     const fab = document.getElementById("agent-fab");
     const backdrop = document.getElementById("agent-fab-backdrop");
@@ -912,5 +1028,6 @@
     initDashboardPage();
     initAgentForm();
     initAgentFab();
+    initPhotoPicker();
   });
 })();

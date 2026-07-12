@@ -66,7 +66,7 @@ finally:
 
 from config import config_by_name
 from models import (
-    db, FoodItem, FoodLogEntry, MEAL_TYPES,
+    db, FoodItem, FoodLogEntry, FoodLogPhoto, FoodPhotoMemory, MEAL_TYPES,
     WeighIn, VacationPeriod, UserProfile, ExerciseEntry, ACTIVITY_LEVELS,
 )
 
@@ -90,7 +90,7 @@ def _ensure_schema_up_to_date(app):
     inspector = sa_inspect(db.engine)
     existing_tables = set(inspector.get_table_names())
 
-    for model in (FoodItem, FoodLogEntry, WeighIn, VacationPeriod, UserProfile, ExerciseEntry):
+    for model in (FoodItem, FoodLogEntry, FoodLogPhoto, FoodPhotoMemory, WeighIn, VacationPeriod, UserProfile, ExerciseEntry):
         table_name = model.__tablename__
         if table_name not in existing_tables:
             continue  # brand-new table -- create_all() already handled it
@@ -565,6 +565,58 @@ def _has_nutrition_data(normalized_product):
     return normalized_product.get("calories") is not None
 
 
+def _normalize_food_name(name):
+    """"Wheat Toast (2 slices)" and "Wheat Toast (3 slices)" should hit
+    the same photo memory -- strip a trailing quantity in parens and
+    normalize case/whitespace so they match.
+    """
+    if not name:
+        return ""
+    core = name.split(" (")[0]
+    return " ".join(core.strip().lower().split())
+
+
+def _auto_attach_remembered_photos(entry):
+    """Called right after a new FoodLogEntry is created (and flushed, so
+    it has an id) -- if this food name has photos remembered from a
+    past entry, attach them automatically. Caller is responsible for
+    the surrounding db.session.flush()/commit().
+    """
+    normalized = _normalize_food_name(entry.display_name)
+    if not normalized:
+        return
+    remembered = db.session.execute(
+        db.select(FoodPhotoMemory)
+        .filter(FoodPhotoMemory.normalized_name == normalized)
+        .order_by(FoodPhotoMemory.position)
+    ).scalars().all()
+    for i, mem in enumerate(remembered):
+        db.session.add(FoodLogPhoto(food_log_entry_id=entry.id, url=mem.url, position=i))
+
+
+def _remember_photo(name, url):
+    """Called when a photo is manually attached via the picker -- saves
+    it to the name-keyed memory so it's auto-applied to every future
+    entry with a matching name, not just this one.
+    """
+    normalized = _normalize_food_name(name)
+    if not normalized:
+        return
+    already = db.session.execute(
+        db.select(FoodPhotoMemory).filter(
+            FoodPhotoMemory.normalized_name == normalized, FoodPhotoMemory.url == url
+        )
+    ).scalar_one_or_none()
+    if already:
+        return  # already remembered, don't duplicate
+    existing_count = db.session.execute(
+        db.select(db.func.count()).select_from(FoodPhotoMemory).filter(
+            FoodPhotoMemory.normalized_name == normalized
+        )
+    ).scalar()
+    db.session.add(FoodPhotoMemory(normalized_name=normalized, url=url, position=existing_count))
+
+
 def _rank_products(products):
     """Prefer results that actually have both a photo and real nutrition
     data. Open Food Facts is crowdsourced, so the same real-world product
@@ -681,6 +733,8 @@ def _run_meal_photo_job(app, job):
             logged_at=datetime.utcnow(),
         )
         db.session.add(entry)
+        db.session.flush()
+        _auto_attach_remembered_photos(entry)
         db.session.commit()
         result = entry.to_dict()
 
@@ -842,6 +896,8 @@ def _run_food_agent(app, job):
                     batch_id=batch_id,
                 )
                 db.session.add(entry)
+                db.session.flush()
+                _auto_attach_remembered_photos(entry)
                 created.append(entry)
             except Exception:  # noqa: BLE001 -- one malformed item shouldn't drop the rest
                 continue
@@ -1125,6 +1181,8 @@ def register_routes(app):
             logged_at=logged_at,
         )
         db.session.add(entry)
+        db.session.flush()
+        _auto_attach_remembered_photos(entry)
         db.session.commit()
         return jsonify(entry.to_dict()), 201
 
@@ -1247,6 +1305,8 @@ def register_routes(app):
                 batch_id=new_batch_id,
             )
             db.session.add(entry)
+            db.session.flush()
+            _auto_attach_remembered_photos(entry)
             created.append(entry)
         db.session.commit()
 
@@ -1318,6 +1378,44 @@ def register_routes(app):
         entry.manual_calories = calories
         db.session.commit()
         return jsonify(entry.to_dict())
+
+    @app.route("/log/<int:entry_id>/photos/add", methods=["POST"])
+    def log_photo_attach(entry_id):
+        """Manually attach a photo by URL to a log entry -- like Plex's
+        'paste a URL' poster picker. Several can be attached to the same
+        entry; they render as a thumbnail row. No fetching or validation
+        of the URL server-side (that would mean a network call in a
+        request handler, which this app avoids everywhere else too) --
+        if the URL is bad, the <img> tag just fails to load client-side.
+        """
+        entry = db.session.get(FoodLogEntry, entry_id)
+        if entry is None:
+            abort(404)
+
+        payload = request.get_json(silent=True) or {}
+        url = (payload.get("url") or "").strip()
+        if not url:
+            return jsonify(error="Paste a URL first"), 400
+        if not (url.startswith("http://") or url.startswith("https://")):
+            return jsonify(error="That doesn't look like a URL"), 400
+        if len(url) > 1000:
+            return jsonify(error="That URL is too long"), 400
+
+        next_position = len(entry.photos)
+        photo = FoodLogPhoto(food_log_entry_id=entry.id, url=url, position=next_position)
+        db.session.add(photo)
+        _remember_photo(entry.display_name, url)
+        db.session.commit()
+        return jsonify(photo.to_dict()), 201
+
+    @app.route("/log/<int:entry_id>/photos/<int:photo_id>/delete", methods=["POST"])
+    def log_photo_remove(entry_id, photo_id):
+        photo = db.session.get(FoodLogPhoto, photo_id)
+        if photo is None or photo.food_log_entry_id != entry_id:
+            abort(404)
+        db.session.delete(photo)
+        db.session.commit()
+        return jsonify(success=True)
 
     @app.route("/food/search", methods=["POST"])
     def food_search_start():

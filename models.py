@@ -78,6 +78,10 @@ class FoodLogEntry(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     food_item_id = db.Column(db.Integer, db.ForeignKey("food_items.id"), nullable=True)
     food_item = db.relationship("FoodItem")
+    photos = db.relationship(
+        "FoodLogPhoto", order_by="FoodLogPhoto.position",
+        cascade="all, delete-orphan",
+    )
 
     meal_type = db.Column(db.String(16), nullable=False)  # one of MEAL_TYPES
     servings = db.Column(db.Float, nullable=False, default=1.0)
@@ -152,6 +156,10 @@ class FoodLogEntry(db.Model):
     def is_photo_logged(self):
         return self.food_item_id is None
 
+    @property
+    def photos_list(self):
+        return [{"id": p.id, "url": p.url} for p in self.photos]
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -159,6 +167,7 @@ class FoodLogEntry(db.Model):
             "nickname": self.food_item.nickname if self.food_item else None,
             "product_name": self.display_name,
             "photo_url": self.display_photo_url,
+            "photos": [p.url for p in self.photos],
             "serving_description": self.food_item.serving_description if self.food_item else None,
             "meal_type": self.meal_type,
             "servings": self.servings,
@@ -172,6 +181,43 @@ class FoodLogEntry(db.Model):
             "source": "photo" if self.is_photo_logged else "library",
             "batch_id": self.batch_id,
         }
+
+
+class FoodLogPhoto(db.Model):
+    """A manually-attached photo (pasted URL, Plex-poster-picker style)
+    for a food log entry. Separate from FoodItem/photo_url's single
+    auto-fetched photo -- this is user-curated, and a single entry can
+    have several, shown as a thumbnail row next to it."""
+
+    __tablename__ = "food_log_photos"
+
+    id = db.Column(db.Integer, primary_key=True)
+    food_log_entry_id = db.Column(db.Integer, db.ForeignKey("food_log_entries.id"), nullable=False)
+    url = db.Column(db.String(1000), nullable=False)
+    position = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {"id": self.id, "url": self.url, "position": self.position}
+
+
+class FoodPhotoMemory(db.Model):
+    """Remembers which photo(s) go with a given food name, independent
+    of any single log entry -- so attaching a photo to "Jif Chunky
+    Peanut Butter" once means every future entry with that same name
+    gets it automatically, even if today's entry is later deleted.
+    Keyed by a normalized (lowercased, quantity-stripped) name rather
+    than the raw description, since "Wheat Toast (2 slices)" and
+    "Wheat Toast (3 slices)" should match the same memory.
+    """
+
+    __tablename__ = "food_photo_memory"
+
+    id = db.Column(db.Integer, primary_key=True)
+    normalized_name = db.Column(db.String(200), nullable=False, index=True)
+    url = db.Column(db.String(1000), nullable=False)
+    position = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class WeighIn(db.Model):

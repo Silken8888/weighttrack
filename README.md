@@ -509,6 +509,33 @@ the Flask app context in the background worker thread, which would
 have crashed every single request with "Working outside of application
 context" if it had shipped as first written.
 
+## Photo picker (Plex-style) + automatic photo memory
+
+Every timeline entry now has a small camera icon that opens a
+Plex-poster-picker-style modal: paste an image URL, it's added to that
+entry's thumbnail row immediately, and you can add several without
+closing the modal -- they render side by side, scaled to fit next to
+the food line. No fetching or validating the URL server-side (that
+would be a network call inside a request handler, which this app
+avoids everywhere), so a bad URL just fails to load client-side rather
+than blocking anything.
+
+**Automatic reuse**: attaching a photo also saves it to a small
+name-keyed memory (`FoodPhotoMemory`), independent of any single log
+entry. Every future entry with a matching food name gets that photo
+attached automatically -- no need to re-paste the same URL every time
+you log the same thing. Matching is on the food name with any quantity
+suffix stripped ("Wheat Toast (2 slices)" and "Wheat Toast (3 slices)"
+match the same memory), so it works across different serving sizes.
+
+Tested directly: attached a photo to a "Wheat Toast (2 slices)" entry,
+then logged "Wheat Toast (3 slices)" separately and confirmed the photo
+carried over automatically despite the different quantity; deleted the
+original entry and confirmed the memory survived and a third entry
+still got the photo; attached a second, different photo to the same
+name and confirmed both appear in the correct order; re-added a
+duplicate URL and confirmed the memory doesn't store it twice.
+
 ## Running it locally
 
 ```bash

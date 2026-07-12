@@ -80,7 +80,13 @@
             <span class="timeline__dot"></span>
             <div class="timeline__card">
               <div class="timeline__main">
-                {% if entry.display_photo_url %}
+                {% if entry.photos %}
+                  <div class="timeline__photo-strip">
+                    {% for photo in entry.photos %}
+                      <img class="timeline__thumb" src="{{ photo.url }}" alt="" loading="lazy" onerror="this.style.display='none'">
+                    {% endfor %}
+                  </div>
+                {% elif entry.display_photo_url %}
                   <img class="timeline__thumb" src="{{ entry.display_photo_url }}" alt="" loading="lazy">
                 {% endif %}
                 <div>
@@ -112,6 +118,14 @@
                     aria-label="Adjust calorie estimate"
                   >&#9998;</button>
                 {% endif %}
+                <button
+                  type="button"
+                  class="timeline__edit"
+                  data-open-photo-picker="{{ entry.id }}"
+                  data-entry-name="{{ entry.display_name }}"
+                  data-photos="{{ entry.photos_list | tojson | e }}"
+                  aria-label="Add or manage photos"
+                >&#128247;</button>
                 <button type="button" class="timeline__remove" data-delete-log-id="{{ entry.id }}" aria-label="Remove entry">&times;</button>
               </div>
             </div>
@@ -124,5 +138,21 @@
       </div>
     {% endif %}
   </section>
+
+  <div class="modal-backdrop" id="photo-picker-modal">
+    <div class="nutrition-label photo-picker">
+      <button type="button" class="nutrition-label__close" id="photo-picker-close" aria-label="Close">&times;</button>
+      <h3>Add A Photo</h3>
+      <p class="nutrition-label__product" id="photo-picker-entry-name">&mdash;</p>
+
+      <form id="photo-picker-form" class="photo-picker-form">
+        <input type="url" id="photo-picker-url" placeholder="Paste an image URL" required>
+        <button type="submit" class="btn">Add</button>
+      </form>
+      <p class="search-status" id="photo-picker-status"></p>
+
+      <div class="photo-picker-grid" id="photo-picker-grid"></div>
+    </div>
+  </div>
 
 {% endblock %}
