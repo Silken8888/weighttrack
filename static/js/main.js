@@ -1016,6 +1016,67 @@
     });
   }
 
+  /* ----------------------------------------------------------------
+     Microphone dictation: browser-native Web Speech API, no external
+     service or API call involved. Gracefully disables itself (rather
+     than erroring) in browsers that don't support it.
+     ---------------------------------------------------------------- */
+
+  function initMicButton(micId, inputId) {
+    const micBtn = document.getElementById(micId);
+    const input = document.getElementById(inputId);
+    if (!micBtn || !input) return;
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      micBtn.disabled = true;
+      micBtn.style.opacity = "0.35";
+      micBtn.title = "Dictation isn't supported in this browser";
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = navigator.language || "en-US";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    let listening = false;
+
+    recognition.addEventListener("result", function (evt) {
+      const transcript = evt.results[0][0].transcript;
+      const existing = input.value.trim();
+      input.value = existing ? existing + " " + transcript : transcript;
+      input.focus();
+    });
+
+    recognition.addEventListener("end", function () {
+      listening = false;
+      micBtn.classList.remove("is-listening");
+    });
+
+    recognition.addEventListener("error", function () {
+      listening = false;
+      micBtn.classList.remove("is-listening");
+    });
+
+    micBtn.addEventListener("click", function () {
+      if (listening) {
+        recognition.stop();
+        return;
+      }
+      listening = true;
+      micBtn.classList.add("is-listening");
+      try {
+        recognition.start();
+      } catch (e) {
+        // Already-started or transient errors -- reset the visual state
+        // rather than leaving the button stuck showing "listening".
+        listening = false;
+        micBtn.classList.remove("is-listening");
+      }
+    });
+  }
+
   function initAgentForm() {
     setupAgentForm({
       form: "agent-form",
@@ -1222,5 +1283,7 @@
     initAgentFab();
     initPhotoPicker();
     initSplashScreen();
+    initMicButton("agent-mic", "agent-message");
+    initMicButton("fab-agent-mic", "fab-agent-message");
   });
 })();

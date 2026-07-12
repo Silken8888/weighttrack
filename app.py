@@ -463,6 +463,18 @@ def _parse_json_from_claude(raw_text):
     return json.loads(cleaned)
 
 
+def _extract_tool_input(data, tool_name):
+    """Pull a forced tool call's input dict straight out of the response
+    -- already a parsed object, no JSON-string parsing involved, since
+    tool_choice guarantees the model responds with exactly this tool
+    call in a structured content block rather than free-form text.
+    """
+    for block in data.get("content", []):
+        if block.get("type") == "tool_use" and block.get("name") == tool_name:
+            return block.get("input")
+    return None
+
+
 def _estimate_meal_calories(app, image_bytes):
     """Ask Claude for a rough calorie estimate + short description of a
     meal photo. Returns (calories, description, error) -- calories/
@@ -945,32 +957,18 @@ def _run_food_agent(app, job):
         "medical or nutritional advice. Infer the date from context "
         "(\"today\", \"yesterday\", a specific date, or unstated -> "
         "today) as an ISO date (YYYY-MM-DD).\n\n"
-        "Respond with ONLY a JSON object, no markdown fences, no "
-        "other text, every turn of the conversation:\n"
-        '{"items": [{"name": "<short name>", "quantity": "<what '
-        'they said, e.g. \'2 slices\'>", "meal_type": "breakfast|'
-        'lunch|dinner|snack", "date": "YYYY-MM-DD", "calories": '
-        '<integer>, "protein_g": <number>, "carbs_g": <number>, '
-        '"fat_g": <number>}, ...], "adjustments": [{"id": <int, '
-        'the id from the recent-entries list above>, "calories": '
-        '<number or null if unchanged>, "protein_g": <number or '
-        'null>, "carbs_g": <number or null>, "fat_g": <number or '
-        'null>, "description": "<new short name, or null if '
-        'unchanged>", "date": "<YYYY-MM-DD to correct the logged '
-        'date, or null if unchanged>", "time": "<HH:MM 24-hour to '
-        'correct the logged time, or null if unchanged>"}, ...], '
-        '"deletions": [<id>, ...], "reply": "<a '
-        "short, natural response -- confirm what you did and the "
-        'total calories, or your answer if it wasn\'t a logging '
-        'action>"}'
+        "Always call the log_and_reply tool to respond, every turn -- "
+        "even for a pure question, call it with empty items/"
+        "adjustments/deletions and put your answer in reply."
     )
 
     # Real multi-turn memory: prior turns in this conversation (floating
     # chat only -- the inline dropdown form is single-shot by design) get
     # replayed as actual message history, not just the current message in
     # isolation. Only the natural-language reply from past assistant
-    # turns is replayed, not the raw JSON envelope -- Claude doesn't need
-    # to see its own past JSON to follow the thread, just what it said.
+    # turns is replayed, not the raw tool-call envelope -- Claude doesn't
+    # need to see its own past tool call to follow the thread, just what
+    # it said.
     messages = []
     for turn in history:
         role = turn.get("role")
@@ -979,22 +977,91 @@ def _run_food_agent(app, job):
             messages.append({"role": role, "content": content[:4000]})
     messages.append({"role": "user", "content": message})
 
+    # Tool-use instead of asking for a plain-text JSON blob: confirmed
+    # live that over a longer conversation, the model can drift into
+    # wrapping the JSON with conversational prose (e.g. after several
+    # natural back-and-forth turns), which broke text-based parsing --
+    # "Got a response from the AI but couldn't parse it." Forcing a tool
+    # call makes the structure a guarantee from the API itself rather
+    # than an instruction the model has to keep remembering to follow.
+    nullable_number = {"type": ["number", "null"]}
+    tool = {
+        "name": "log_and_reply",
+        "description": (
+            "Log new food items, adjust or delete existing log entries, "
+            "and reply to the user. Call this every turn, even for a "
+            "pure question -- use empty arrays for items/adjustments/"
+            "deletions when nothing needs to change."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "description": "New food/drink items to log.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "quantity": {"type": "string"},
+                            "meal_type": {"type": "string", "enum": list(MEAL_TYPES)},
+                            "date": {"type": "string", "description": "ISO date YYYY-MM-DD"},
+                            "calories": {"type": "integer"},
+                            "protein_g": {"type": "number"},
+                            "carbs_g": {"type": "number"},
+                            "fat_g": {"type": "number"},
+                        },
+                        "required": ["name", "calories"],
+                    },
+                },
+                "adjustments": {
+                    "type": "array",
+                    "description": "Corrections to entries already logged, referenced by id.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "integer"},
+                            "calories": nullable_number,
+                            "protein_g": nullable_number,
+                            "carbs_g": nullable_number,
+                            "fat_g": nullable_number,
+                            "description": {"type": ["string", "null"]},
+                            "date": {"type": ["string", "null"], "description": "ISO date YYYY-MM-DD or null if unchanged"},
+                            "time": {"type": ["string", "null"], "description": "HH:MM 24-hour or null if unchanged"},
+                        },
+                        "required": ["id"],
+                    },
+                },
+                "deletions": {
+                    "type": "array",
+                    "description": "ids of entries to delete.",
+                    "items": {"type": "integer"},
+                },
+                "reply": {
+                    "type": "string",
+                    "description": "Short natural response -- confirm what you did and the total calories, or the answer if it wasn't a logging action.",
+                },
+            },
+            "required": ["items", "adjustments", "deletions", "reply"],
+        },
+    }
+
     payload = {
         "model": app.config["ANTHROPIC_AGENT_MODEL"],
         "max_tokens": 1500,
         "system": system_prompt,
         "messages": messages,
+        "tools": [tool],
+        "tool_choice": {"type": "tool", "name": "log_and_reply"},
     }
 
     data, error = _call_claude(app, payload, timeout_multiplier=3)
     if data is None:
         return None, error
 
-    raw_text = _extract_claude_text(data)
-    try:
-        parsed = _parse_json_from_claude(raw_text)
-    except json.JSONDecodeError:
-        return None, "Got a response from the AI but couldn't parse it. Try rephrasing."
+    parsed = _extract_tool_input(data, "log_and_reply")
+    if parsed is None:
+        return None, "Got a response from the AI but couldn't read it. Try rephrasing."
 
     items = parsed.get("items") or []
     adjustments = parsed.get("adjustments") or []

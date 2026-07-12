@@ -708,6 +708,32 @@ time. Confirmed directly: captured the messages array sent to Claude on
 a simulated turn 2 and verified the full prior exchange is there, not
 just the new message in isolation.
 
+## "Couldn't parse" fixed for real via tool-use, plus microphone dictation
+
+**The parsing failure from that screenshot is now structurally
+impossible**, not just patched. Root cause: I'd been asking Claude to
+respond with plain-text JSON and hoping it stayed disciplined about the
+format. Confirmed live that over a longer, more natural conversation
+the model can drift into wrapping the JSON with conversational prose
+("Sure, let me help with that. {...}"), which broke the old regex-based
+extraction outright. Rebuilt the whole response contract on Claude's
+actual tool-use feature: a forced `log_and_reply` tool with a real JSON
+schema, via `tool_choice: {"type": "tool", "name": "log_and_reply"}`.
+This makes structure a guarantee from the API itself, not an
+instruction the model has to keep remembering to follow -- extraction
+is now just reading an already-parsed `input` dict off a `tool_use`
+content block, no string parsing at all. Tested by deliberately
+reconstructing the exact failure shape (a leading text block *plus* the
+tool call, mimicking conversational drift) and confirmed extraction
+still works cleanly; also re-confirmed full food logging still works
+end-to-end against the new schema.
+
+**Microphone dictation** added to both the inline "Tell The Assistant"
+panel and the floating chat, using the browser's native Web Speech API
+-- no external service, no added cost, works offline of any server
+call. Degrades gracefully (button visibly disables with an explanatory
+tooltip) in browsers that don't support it rather than erroring.
+
 ## Running it locally
 
 ```bash
