@@ -1233,6 +1233,28 @@ clock but from the previous calendar day, run the way production
 actually calls it (inside a request context), and confirmed the
 refresh fires correctly.
 
+## Fixed: pill centering, auto-reveal on load, tightened spacing
+
+**Pills weren't filling the second tile** -- traced it to the inner
+grid keeping its own `max-width: 680px` while the tile it sat inside
+could end up computing to a different actual width, leaving a visible
+gradient gap on the right. Fixed by making the pills grid always match
+its direct parent's width exactly (`width: 100%`) instead of relying on
+a separately-computed max-width that could drift out of sync with the
+tile's real rendered size.
+
+**A year and its Wikipedia link now show automatically the moment the
+page loads** -- no click required for the first one, matching what was
+asked directly. The button now gets a different year each time after
+that, which was already the underlying mechanic; it just needed to
+fire once automatically instead of waiting for a first click.
+
+**Tightened the Mystery Year card's spacing** -- most of the visible
+empty space was actually the reveal area sitting empty until a click
+happened, which the auto-reveal fix resolves on its own; trimmed
+remaining margins on top of that so the card wraps its content
+closely.
+
 ## Running it locally
 
 ```bash

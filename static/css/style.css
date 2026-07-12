@@ -1082,6 +1082,9 @@ button { font-family: inherit; cursor: pointer; }
 
 .mobile-hero__numbers--three {
   grid-template-columns: repeat(3, 1fr);
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 
 .mobile-hero__numbers--three .mobile-hero__stat {

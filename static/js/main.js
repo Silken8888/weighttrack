@@ -864,9 +864,12 @@
       });
     });
 
-    // Warm the pool in the background as soon as the page loads, so the
-    // first click doesn't have to wait on the fetch.
-    fetchPool(function () {});
+    // Show a year automatically as soon as the pool loads -- no click
+    // needed for the first one. The button reveals a different one
+    // after that.
+    fetchPool(function () {
+      if (nextPick) revealPrepped();
+    });
   }
 
   function initPatriotsNews() {
