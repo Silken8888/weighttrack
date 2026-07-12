@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 import requests
 from flask import Flask, render_template, request, jsonify, abort
+from sqlalchemy import inspect as sa_inspect, text as sa_text
 from PIL import Image, UnidentifiedImageError
 
 # pyzbar's only mechanism for finding the zbar shared library on Linux is
@@ -70,6 +71,39 @@ from models import (
 )
 
 
+def _ensure_schema_up_to_date(app):
+    """db.create_all() only creates TABLES that don't exist yet -- it
+    never alters an existing table to add new columns. Confirmed live:
+    food_log_entries already existed in production from an earlier
+    deploy (meal photo logging), so when ai_protein_g/ai_carbs_g/
+    ai_fat_g/batch_id were added to the model tonight, create_all()
+    silently did nothing for them, and every query touching the table
+    threw psycopg2.errors.UndefinedColumn.
+
+    This is a minimal, dependency-free migration step appropriate for a
+    personal app's scale (a real multi-developer project would use
+    Alembic instead): compare each model's declared columns against
+    what the live table actually has, and ALTER TABLE to add whatever's
+    missing. Safe to run on every startup -- it's a no-op once the
+    schema is caught up.
+    """
+    inspector = sa_inspect(db.engine)
+    existing_tables = set(inspector.get_table_names())
+
+    for model in (FoodItem, FoodLogEntry, WeighIn, VacationPeriod, UserProfile, ExerciseEntry):
+        table_name = model.__tablename__
+        if table_name not in existing_tables:
+            continue  # brand-new table -- create_all() already handled it
+        existing_columns = {c["name"] for c in inspector.get_columns(table_name)}
+        for column in model.__table__.columns:
+            if column.name in existing_columns:
+                continue
+            col_type = column.type.compile(dialect=db.engine.dialect)
+            with db.engine.begin() as conn:
+                conn.execute(sa_text(f'ALTER TABLE {table_name} ADD COLUMN {column.name} {col_type}'))
+            print(f"INFO: schema sync -- added missing column {table_name}.{column.name}")
+
+
 def create_app(config_name=None):
     config_name = config_name or os.environ.get("FLASK_ENV", "development")
     app = Flask(__name__)
@@ -78,6 +112,7 @@ def create_app(config_name=None):
     db.init_app(app)
     with app.app_context():
         db.create_all()
+        _ensure_schema_up_to_date(app)
 
     register_routes(app)
     start_search_worker(app)

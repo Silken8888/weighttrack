@@ -450,6 +450,36 @@ no AI call needed for a repeat, just copying known-good data. Tested
 directly: logged a meal, confirmed it appeared as a suggestion for that
 meal type, and confirmed "Log Again" created a fresh set of entries.
 
+## Tenth issue: new columns never reached the live database
+
+Hit immediately after the last deploy: `psycopg2.errors.UndefinedColumn:
+column food_log_entries.ai_protein_g does not exist`. Root cause is a
+predictable, well-known Flask-SQLAlchemy behavior I should have caught
+before shipping: `db.create_all()` only creates tables that don't exist
+yet -- it never alters an *existing* table to add new columns.
+`food_log_entries` already existed in production from the meal-photo-
+logging deploy earlier tonight, so when `ai_protein_g`, `ai_carbs_g`,
+`ai_fat_g`, and `batch_id` were added to the model for the food agent,
+`create_all()` silently did nothing for that table, and every query
+touching it threw a real SQL error in production.
+
+Reproduced this exactly before fixing it: built a SQLite table matching
+the live production schema (missing those four columns), ran the
+current app against it, confirmed it fails the same way. Fixed with
+`_ensure_schema_up_to_date()` -- a minimal, dependency-free migration
+step (no Alembic in this project, appropriate for a personal app's
+scale) that runs at startup, compares each model's declared columns
+against what the live table actually has via SQLAlchemy's inspector,
+and issues `ALTER TABLE ... ADD COLUMN` for anything missing.
+
+Tested three ways: (1) against the reproduced old-schema database --
+confirmed it adds exactly the four missing columns and the page loads
+cleanly afterward, (2) against a completely fresh empty database --
+confirmed it's a clean no-op when `create_all()` already created
+everything correctly, (3) running it twice in a row against an
+already-synced database -- confirmed it doesn't error or duplicate
+columns on a second run.
+
 ## Running it locally
 
 ```bash
