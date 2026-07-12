@@ -1080,11 +1080,12 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--text-secondary);
 }
 
-.mobile-hero__numbers--three {
+.mobile-hero__numbers.mobile-hero__numbers--three {
   grid-template-columns: repeat(3, 1fr);
   width: 100%;
   max-width: none;
   margin: 0;
+  justify-content: stretch;
 }
 
 .mobile-hero__numbers--three .mobile-hero__stat {
@@ -1237,6 +1238,15 @@ button { font-family: inherit; cursor: pointer; }
   line-height: 1.5;
   color: var(--text-secondary);
   margin: 0;
+}
+
+.mystery-year__narrative {
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 8px 0 0;
+  text-align: left;
 }
 
 .mystery-year__link {

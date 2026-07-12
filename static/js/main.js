@@ -770,6 +770,7 @@
     const reveal = document.getElementById("mystery-year-reveal");
     const yearEl = document.getElementById("mystery-year-year");
     const textEl = document.getElementById("mystery-year-text");
+    const narrativeEl = document.getElementById("mystery-year-narrative");
     const linkEl = document.getElementById("mystery-year-link");
     if (!button) return;
 
@@ -810,6 +811,27 @@
       nextPick = available[Math.floor(Math.random() * available.length)];
     }
 
+    function loadNarrative(year, requestId, attempt) {
+      attempt = attempt || 0;
+      fetch("/dashboard/year-narrative/" + year)
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          // The button may have been clicked again since this fetch
+          // started -- only apply the result if it's still the year
+          // currently on screen.
+          if (requestId !== currentRequestId) return;
+          if (data.narrative) {
+            narrativeEl.textContent = data.narrative;
+            narrativeEl.hidden = false;
+          } else if (attempt < 4) {
+            setTimeout(function () { loadNarrative(year, requestId, attempt + 1); }, 2000);
+          }
+        })
+        .catch(function () {});
+    }
+
+    let currentRequestId = 0;
+
     function revealPrepped() {
       if (!nextPick) return;
       const pick = nextPick;
@@ -817,6 +839,8 @@
 
       yearEl.textContent = pick.year;
       textEl.textContent = pick.text;
+      narrativeEl.hidden = true;
+      narrativeEl.textContent = "";
       if (pick.url) {
         linkEl.href = pick.url;
         linkEl.hidden = false;
@@ -825,6 +849,9 @@
       }
       reveal.hidden = false;
       button.textContent = "Reveal Another Year";
+
+      currentRequestId += 1;
+      loadNarrative(pick.year, currentRequestId);
 
       prepNext();
     }

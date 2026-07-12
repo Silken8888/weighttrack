@@ -1255,6 +1255,31 @@ happened, which the auto-reveal fix resolves on its own; trimmed
 remaining margins on top of that so the card wraps its content
 closely.
 
+## Found the real bug behind the pills, plus a fuller year narrative
+
+**The pills were never actually fixed last time** -- both attempts
+changed the right values but ran into a genuine CSS cascade bug: the
+override (`.mobile-hero__numbers--three`) and the base class
+(`.mobile-hero__numbers`) had identical specificity, and the base class
+happened to be defined *later* in the file -- so it silently won and
+kept capping the width at 680px regardless of what the override said.
+Fixed for good with a compound selector (`.mobile-hero__numbers.mobile-hero__numbers--three`)
+that has strictly higher specificity, so it wins regardless of source
+order. Confirmed this with the actual specificity math, not just by
+eyeballing it again.
+
+**Mystery Year now pulls a fuller narrative for the revealed year**,
+not just the single on-this-day sentence -- verified Wikipedia's
+year-page summary endpoint returns real paragraph-length content before
+building anything around it. Fetched lazily, only for years actually
+revealed (not the whole ~47-year pool upfront), cached permanently
+since a year's summary doesn't change, and routed through the same
+background-thread pattern as everything else so a request handler never
+blocks on it. Confirmed the cache and de-duplication both work: a cold
+year returns nothing immediately then real content moments later, and
+three rapid requests for the same uncached year only trigger one actual
+fetch.
+
 ## Running it locally
 
 ```bash

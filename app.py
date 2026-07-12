@@ -160,6 +160,15 @@ _daily_extras_cache = {
 _daily_extras_lock = threading.Lock()
 _daily_extras_refreshing = False
 
+# Longer narrative text for a specific year (from Wikipedia's year-page
+# summary, not the single-event "on this day" snippet), fetched lazily
+# only for years actually revealed by the Mystery Year button. Permanent
+# content, not date-scoped, so this just grows and stays useful forever
+# rather than resetting daily like the extras cache above.
+_year_narrative_cache = {}
+_year_narrative_lock = threading.Lock()
+_year_narrative_fetching = set()
+
 
 def _prune_old_jobs(ttl_seconds):
     cutoff = datetime.utcnow() - timedelta(seconds=ttl_seconds)
@@ -869,6 +878,37 @@ def _fetch_on_this_day(local_date):
         link = pages[0].get("content_urls", {}).get("desktop", {}).get("page") if pages else None
         results.append({"year": year, "text": e.get("text"), "url": link})
     return results
+
+
+def _fetch_year_narrative(year):
+    """A paragraph-length summary of a specific year, from Wikipedia's
+    year-page (not the single-event on-this-day snippet) -- confirmed
+    this endpoint is real and returns genuine content before building
+    anything around it.
+    """
+    try:
+        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{year}"
+        resp = requests.get(
+            url, headers={"User-Agent": "WeighTrack-personal-app/1.0"}, timeout=10
+        )
+        resp.raise_for_status()
+        return resp.json().get("extract")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _refresh_year_narrative(year):
+    """Runs in a background thread -- same hard rule as every other
+    external call in this app, never inline in a request.
+    """
+    try:
+        text = _fetch_year_narrative(year)
+        if text:
+            with _year_narrative_lock:
+                _year_narrative_cache[year] = text
+    finally:
+        with _year_narrative_lock:
+            _year_narrative_fetching.discard(year)
 
 
 def _fetch_patriots_news():
@@ -2529,6 +2569,17 @@ def register_routes(app):
             on_this_day = _daily_extras_cache["on_this_day"]
             patriots_news = _daily_extras_cache["patriots_news"]
         return jsonify(on_this_day=on_this_day, patriots_news=patriots_news)
+
+    @app.route("/dashboard/year-narrative/<int:year>")
+    def dashboard_year_narrative(year):
+        with _year_narrative_lock:
+            cached = _year_narrative_cache.get(year)
+            should_start = cached is None and year not in _year_narrative_fetching
+            if should_start:
+                _year_narrative_fetching.add(year)
+        if should_start:
+            threading.Thread(target=_refresh_year_narrative, args=(year,), daemon=True).start()
+        return jsonify(narrative=cached)
 
     @app.route("/dashboard")
     def dashboard():
