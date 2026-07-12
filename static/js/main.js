@@ -62,10 +62,9 @@
           })
           .then(function (data) {
             const city = data.city || data.locality || "";
-            const region = data.principalSubdivisionCode
-              ? data.principalSubdivisionCode.split("-").pop()
-              : "";
-            locEl.textContent = [city, region].filter(Boolean).join(", ") || "location found";
+            const state = data.principalSubdivision || "";
+            const country = data.countryName || "";
+            locEl.textContent = [city, state, country].filter(Boolean).join(", ") || "location found";
           })
           .catch(function () {
             locEl.textContent = "location unavailable";

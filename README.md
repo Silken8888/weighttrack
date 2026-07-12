@@ -651,6 +651,30 @@ closing after one doesn't reload at all. Confirmed the response shape
 each check depends on directly: a logging action returns non-empty
 entries/adjusted/deleted, a pure question returns all three empty.
 
+## Location fix, stamp cleanup, tighter gradient tile
+
+**Location now includes full state and country**, not just an
+abbreviated region code. One honest caveat: the "city" portion may
+still show "Central Coast" for that exact spot, if that's genuinely the
+most specific place name BigDataCloud's reverse-geocode API has for
+those GPS coordinates (a data-source limitation, not something more
+code can fix) -- but state and country are real, added information now
+("Central Coast, California, United States" instead of "Central Coast,
+CA").
+
+**Stamp box cleaned up**: combined date and time onto one line (they
+were three separate equal-weight labeled rows before, which read as
+cluttered for what's really one piece of information plus a secondary
+detail). Date/time font roughly doubled (11px -> 22px) as the primary
+line; location is a smaller secondary line below it, giving it an
+actual hierarchy instead of three flat rows. Added a narrow-screen
+adjustment so the bigger text doesn't overflow small phones.
+
+**Gradient hero tile tightened**: it was spanning the full page width
+with the chip row centered inside, leaving wide unused gradient margins
+on both sides. Constrained the tile itself to hug the chip row's width
+instead of stretching edge to edge.
+
 ## Running it locally
 
 ```bash
