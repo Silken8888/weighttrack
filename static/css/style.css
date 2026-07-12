@@ -1112,6 +1112,88 @@ button { font-family: inherit; cursor: pointer; }
   margin-top: 2px;
 }
 
+.mobile-hero__row {
+  display: grid;
+  grid-template-columns: 1fr minmax(auto, 680px) 1fr;
+  align-items: stretch;
+  gap: 20px;
+}
+
+.hero-flank {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+@media (max-width: 1180px) {
+  .mobile-hero__row {
+    grid-template-columns: 1fr;
+  }
+  .hero-flank {
+    order: 2;
+  }
+  .mobile-hero__gradient {
+    order: 1;
+  }
+}
+
+.mystery-year__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.mystery-year__button {
+  align-self: flex-start;
+}
+
+.mystery-year__reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--surface-2);
+}
+
+.mystery-year__year {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 32px;
+  background: var(--gradient-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.mystery-year__text {
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.mystery-year__link {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--teal);
+}
+
+.patriots-badge {
+  display: inline-block;
+  transform: translateY(1px);
+}
+
+.extras-list__date {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
 .mobile-hero__extra {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

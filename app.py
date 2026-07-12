@@ -5,7 +5,6 @@ import json
 import base64
 import time
 import uuid
-import random
 import threading
 import xml.etree.ElementTree as ET
 from queue import Queue, Empty
@@ -838,11 +837,13 @@ def _rank_products(products):
 
 
 def _fetch_on_this_day(local_date):
-    """A handful of historical events for today's local calendar date,
-    via Wikimedia's public REST API -- no key required. Picks 5 at
-    random out of whatever the API returns, so it's a fresh mix each
-    day rather than always the same top events, but stays consistent
-    for the rest of that one day since the cache is keyed by date.
+    """Every historical event Wikimedia has for today's local calendar
+    date (no key required) -- deduplicated to one entry per year, since
+    the mystery-year button draws from this pool and needs distinct
+    years to avoid repeats. Typically ~35-50 distinct years per date,
+    not the "well over 1000" a full mystery-year deck might imply --
+    that's the real size of this real data source, not an artificial
+    cap.
     """
     url = f"https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/events/{local_date.month:02d}/{local_date.day:02d}"
     try:
@@ -856,13 +857,17 @@ def _fetch_on_this_day(local_date):
 
     if not events:
         return None
-    picked = random.sample(events, min(5, len(events)))
-    picked.sort(key=lambda e: e.get("year", 0))
+
+    seen_years = set()
     results = []
-    for e in picked:
+    for e in sorted(events, key=lambda e: e.get("year", 0)):
+        year = e.get("year")
+        if year is None or year in seen_years:
+            continue
+        seen_years.add(year)
         pages = e.get("pages") or []
         link = pages[0].get("content_urls", {}).get("desktop", {}).get("page") if pages else None
-        results.append({"year": e.get("year"), "text": e.get("text"), "url": link})
+        results.append({"year": year, "text": e.get("text"), "url": link})
     return results
 
 

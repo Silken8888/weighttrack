@@ -1124,6 +1124,64 @@ dependencies) and fail gracefully with a real message if a source is
 temporarily down, rather than leaving a blank space or crashing the
 page.
 
+## On This Day / Patriots News moved into the hero row, and On This Day is now a mystery-year button
+
+Restructured per direct request. Found the natural home for this
+myself first: the hero gradient tile already had `max-width: 680px;
+margin: 0 auto`, leaving equal empty space on both sides on a wide
+screen -- exactly where these belonged. Wrapped it in a 3-column row
+(Mystery Year / hero / Patriots News) that collapses back to a single
+stacked column under ~1180px so it doesn't get cramped on anything
+narrower than a wide desktop.
+
+**Mystery Year**: On This Day's list and links are gone, replaced with
+a single button that reveals one random year from today's actual pool
+of historical events, tracked so it won't repeat a year until every
+one in the pool has had a turn, then starts a fresh round automatically
+rather than just stopping. Widened the backend fetch to the full
+deduplicated set of years for a given date (confirmed 47 distinct years
+on the day this was built, not just the 5 that used to show) instead of
+a random subset, so there's an actual pool to draw from. Verified the
+no-repeat logic by literally running it -- 3 reveals from a 3-year test
+pool came back as all 3 distinct years in some order, and the 4th
+reveal correctly reset and continued rather than getting stuck.
+
+**Patriots News** stays a list, per direct request (only On This Day
+became the mystery button) -- shows each headline's date alongside its
+link. Added a football emoji next to the header as a stand-in for a
+logo -- the real Patriots logo is trademarked NFL team IP, not
+something safe to reproduce here, so this is the closest tasteful
+equivalent rather than skipping the ask or doing something risky.
+
+Caught and fixed a small pre-existing bug while working in this area:
+the old extras section's loading text literally said `\u2026` on
+screen -- an escape sequence written into an HTML file where it was
+never going to be interpreted, not an actual ellipsis character. Moot
+now since that whole section was replaced, but worth noting since it
+had been silently wrong since it shipped.
+
+## Popup windows, no more explanatory text, instant reveals every time
+
+**Links now open as real popup windows**, not new tabs -- per direct
+request, closing the popup leaves the original WeighTrack tab exactly
+where it was. Applies to both the Mystery Year "Read more" link and
+every Patriots headline.
+
+**Removed the intro and progress text entirely** ("47 distinct years
+to draw from today...", "1 of 47 years revealed today") -- the
+no-repeat-until-exhausted mechanic still works exactly the same
+underneath, it's just not narrated on screen anymore.
+
+**Every click is now instant**, including the very first one after the
+pool loads. Reworked the logic so the *next* year to reveal is always
+pre-selected the moment the current one is shown, rather than being
+picked fresh on each click -- by the time someone clicks again, there's
+nothing left to compute, it's already sitting there ready. Verified
+this directly rather than assuming it: confirmed a pick is already
+prepped immediately after the pool loads, before every one of several
+rapid clicks, and immediately after the pool resets once every year's
+had a turn.
+
 ## Running it locally
 
 ```bash

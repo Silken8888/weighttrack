@@ -747,43 +747,140 @@
     });
   }
 
-  function initDailyExtras() {
-    const otdBody = document.getElementById("on-this-day-body");
-    const newsBody = document.getElementById("patriots-news-body");
-    if (!otdBody && !newsBody) return;
+  function openPopup(url) {
+    // A real popup window, not a new tab -- closing it leaves the
+    // original WeighTrack tab exactly where it was, per direct request.
+    window.open(
+      url, "wt_popup",
+      "width=900,height=800,noopener,noreferrer,resizable=yes,scrollbars=yes"
+    );
+  }
 
-    function renderOnThisDay(events) {
-      if (!otdBody) return;
-      if (!events || !events.length) {
-        otdBody.innerHTML = '<p class="empty-state">Couldn\u2019t load this today -- try again later.</p>';
-        return;
+  function initPopupLinks() {
+    document.addEventListener("click", function (evt) {
+      const link = evt.target.closest("[data-popup-link]");
+      if (!link || !link.href) return;
+      evt.preventDefault();
+      openPopup(link.href);
+    });
+  }
+
+  function initMysteryYear() {
+    const button = document.getElementById("mystery-year-button");
+    const reveal = document.getElementById("mystery-year-reveal");
+    const yearEl = document.getElementById("mystery-year-year");
+    const textEl = document.getElementById("mystery-year-text");
+    const linkEl = document.getElementById("mystery-year-link");
+    if (!button) return;
+
+    let pool = null; // full list of {year, text, url} for today, fetched once
+    let nextPick = null; // pre-selected the instant the previous one is shown
+    let fetching = false;
+    const today = new Date().toISOString().slice(0, 10);
+    const storageKey = "wt_mystery_shown_" + today;
+
+    function getShown() {
+      try {
+        return JSON.parse(sessionStorage.getItem(storageKey) || "[]");
+      } catch (e) {
+        return [];
       }
-      const list = document.createElement("ul");
-      list.className = "extras-list";
-      events.forEach(function (e) {
-        const li = document.createElement("li");
-        li.className = "extras-list__item";
-        const yearSpan = document.createElement("span");
-        yearSpan.className = "extras-list__year";
-        yearSpan.textContent = e.year;
-        li.appendChild(yearSpan);
-        const textEl = e.url ? document.createElement("a") : document.createElement("span");
-        if (e.url) {
-          textEl.href = e.url;
-          textEl.target = "_blank";
-          textEl.rel = "noopener";
-        }
-        textEl.className = "extras-list__text";
-        textEl.textContent = e.text;
-        li.appendChild(textEl);
-        list.appendChild(li);
-      });
-      otdBody.innerHTML = "";
-      otdBody.appendChild(list);
     }
 
-    function renderPatriotsNews(items) {
-      if (!newsBody) return;
+    function markShown(year) {
+      const shown = getShown();
+      if (shown.indexOf(year) === -1) shown.push(year);
+      sessionStorage.setItem(storageKey, JSON.stringify(shown));
+    }
+
+    // Picks and holds the NEXT year to show, without displaying it --
+    // called right after every reveal so the following click is
+    // instant, never waiting on this (trivial, but zero-delay either
+    // way) computation.
+    function prepNext() {
+      if (!pool || !pool.length) { nextPick = null; return; }
+      let shown = getShown();
+      let available = pool.filter(function (e) { return shown.indexOf(e.year) === -1; });
+      if (!available.length) {
+        // Every year's had a turn -- start a fresh round rather than
+        // just stopping.
+        sessionStorage.removeItem(storageKey);
+        available = pool.slice();
+      }
+      nextPick = available[Math.floor(Math.random() * available.length)];
+    }
+
+    function revealPrepped() {
+      if (!nextPick) return;
+      const pick = nextPick;
+      markShown(pick.year);
+
+      yearEl.textContent = pick.year;
+      textEl.textContent = pick.text;
+      if (pick.url) {
+        linkEl.href = pick.url;
+        linkEl.hidden = false;
+      } else {
+        linkEl.hidden = true;
+      }
+      reveal.hidden = false;
+      button.textContent = "Reveal Another Year";
+
+      prepNext();
+    }
+
+    function fetchPool(cb, attempt) {
+      attempt = attempt || 0;
+      fetch("/dashboard/daily-extras")
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (data.on_this_day && data.on_this_day.length) {
+            pool = data.on_this_day;
+            prepNext();
+            cb();
+          } else if (attempt < 5) {
+            setTimeout(function () { fetchPool(cb, attempt + 1); }, 3000);
+          } else {
+            cb();
+          }
+        })
+        .catch(function () { cb(); });
+    }
+
+    button.addEventListener("click", function () {
+      if (nextPick) {
+        revealPrepped();
+        return;
+      }
+      if (fetching) return; // already loading, this click is a no-op
+      fetching = true;
+      fetchPool(function () {
+        fetching = false;
+        if (nextPick) {
+          revealPrepped();
+        } else {
+          button.textContent = "Couldn't load today's history -- try again";
+        }
+      });
+    });
+
+    // Warm the pool in the background as soon as the page loads, so the
+    // first click doesn't have to wait on the fetch.
+    fetchPool(function () {});
+  }
+
+  function initPatriotsNews() {
+    const newsBody = document.getElementById("patriots-news-body");
+    if (!newsBody) return;
+
+    function formatDate(pubDate) {
+      if (!pubDate) return "";
+      const d = new Date(pubDate);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    }
+
+    function render(items) {
       if (!items || !items.length) {
         newsBody.innerHTML = '<p class="empty-state">Couldn\u2019t load this today -- try again later.</p>';
         return;
@@ -793,13 +890,21 @@
       items.forEach(function (n) {
         const li = document.createElement("li");
         li.className = "extras-list__item";
+        const li_inner = document.createElement("div");
         const link = document.createElement("a");
         link.href = n.url;
-        link.target = "_blank";
-        link.rel = "noopener";
+        link.setAttribute("data-popup-link", "");
         link.className = "extras-list__text";
         link.textContent = n.title;
-        li.appendChild(link);
+        li_inner.appendChild(link);
+        const dateLabel = formatDate(n.pub_date);
+        if (dateLabel) {
+          const dateEl = document.createElement("span");
+          dateEl.className = "extras-list__date";
+          dateEl.textContent = dateLabel;
+          li_inner.appendChild(dateEl);
+        }
+        li.appendChild(li_inner);
         list.appendChild(li);
       });
       newsBody.innerHTML = "";
@@ -810,24 +915,16 @@
       fetch("/dashboard/daily-extras")
         .then(function (res) { return res.json(); })
         .then(function (data) {
-          const otdReady = data.on_this_day && data.on_this_day.length;
-          const newsReady = data.patriots_news && data.patriots_news.length;
-          if (otdReady) renderOnThisDay(data.on_this_day);
-          if (newsReady) renderPatriotsNews(data.patriots_news);
-
-          // First-ever load: the background fetch may still be running.
-          // Retry a few times, a few seconds apart, before giving up.
-          if ((!otdReady || !newsReady) && attempt < 5) {
+          const ready = data.patriots_news && data.patriots_news.length;
+          if (ready) {
+            render(data.patriots_news);
+          } else if (attempt < 5) {
             setTimeout(function () { poll(attempt + 1); }, 3000);
           } else {
-            if (!otdReady) renderOnThisDay(null);
-            if (!newsReady) renderPatriotsNews(null);
+            render(null);
           }
         })
-        .catch(function () {
-          renderOnThisDay(null);
-          renderPatriotsNews(null);
-        });
+        .catch(function () { render(null); });
     }
 
     poll(0);
@@ -1496,7 +1593,9 @@
     initWeighInPage();
     initVacationPage();
     initDashboardPage();
-    initDailyExtras();
+    initPopupLinks();
+    initMysteryYear();
+    initPatriotsNews();
     initAgentForm();
     initAgentFab();
     initPhotoPicker();
