@@ -812,12 +812,17 @@
 
   function setupAgentForm(ids) {
     const form = document.getElementById(ids.form);
-    const mealType = document.getElementById(ids.mealType);
     const statusEl = document.getElementById(ids.status);
-    if (!form || !mealType || !statusEl) return;
+    if (!form || !statusEl) return;
 
-    mealType.addEventListener("change", function () { loadAgentSuggestions(ids); });
-    loadAgentSuggestions(ids);
+    // mealType/suggestions are optional -- the inline "Tell The
+    // Assistant" panel has both, the general-purpose floating chat has
+    // neither (no pre-selected meal, so no per-meal suggestions to show).
+    const mealType = ids.mealType ? document.getElementById(ids.mealType) : null;
+    if (mealType && ids.suggestions) {
+      mealType.addEventListener("change", function () { loadAgentSuggestions(ids); });
+      loadAgentSuggestions(ids);
+    }
 
     form.addEventListener("submit", function (evt) {
       evt.preventDefault();
@@ -830,7 +835,7 @@
       fetch("/agent/message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: message, meal_type: mealType.value }),
+        body: JSON.stringify({ message: message, meal_type: mealType ? mealType.value : "" }),
       })
         .then(function (res) {
           if (!res.ok) return res.json().then(function (b) { throw new Error(b.error || "Couldn't log that."); });
@@ -871,10 +876,8 @@
         // pointed at the fab-prefixed element IDs.
         setupAgentForm({
           form: "fab-agent-form",
-          mealType: "fab-agent-meal-type",
           message: "fab-agent-message",
           status: "fab-agent-status",
-          suggestions: "fab-agent-suggestions",
         });
         wired = true;
       }

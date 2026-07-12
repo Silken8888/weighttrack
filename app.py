@@ -688,20 +688,53 @@ def _run_meal_photo_job(app, job):
 
 
 def _run_food_agent(app, job):
-    """Parse a free-text message like "two pieces of wheat toast with
-    jif chunky peanut butter and 28 oz of coffee with 3 tbsp of
-    starbucks non-dairy creamer" into distinct food items, each with its
-    own estimated nutrition, and log each one directly -- no search, no
-    confirmation step, matching how photo logging already works.
+    """The WeighTrack assistant: log new food described in plain
+    language, adjust or delete something already logged if the message
+    reads like a correction, or just answer a question -- not every
+    message is a logging action.
 
-    meal_type comes from the dropdown the user picks before typing, not
-    from Claude's guess -- removes a whole category of ambiguity ("was
-    that lunch or a snack?") since the user already said which.
+    meal_type is optional now. When it's set (the inline "Tell The
+    Assistant" panel, which still has the dropdown), it overrides
+    whatever Claude would've guessed for every new item -- removes a
+    whole category of ambiguity. When it's None (the general-purpose
+    floating chat button), Claude infers it per item from context or
+    time of day.
     """
     message = job["message"]
-    meal_type = job["meal_type"]
+    meal_type = job.get("meal_type")
     today = datetime.utcnow().date().isoformat()
     now_time = datetime.utcnow().strftime("%H:%M")
+
+    # Recent entries, so Claude has something concrete to point at when
+    # the user says "actually the toast was 3 slices" or "delete the
+    # coffee I just logged" -- the id here is what it references back.
+    with app.app_context():
+        recent = db.session.execute(
+            db.select(FoodLogEntry).order_by(FoodLogEntry.logged_at.desc()).limit(20)
+        ).scalars().all()
+        if recent:
+            recent_lines = [
+                f'id={e.id}: "{e.display_name}", {e.meal_type}, logged '
+                f'{e.logged_at.strftime("%Y-%m-%d %H:%M")}, '
+                f'{round(e.calories) if e.calories is not None else "?"} cal'
+                for e in recent
+            ]
+            recent_context = "\n".join(recent_lines)
+        else:
+            recent_context = "(nothing logged yet)"
+
+    if meal_type:
+        meal_instruction = (
+            f'The user already told the app this is for "{meal_type}" -- use '
+            f'"{meal_type}" for every new item regardless of what they say.'
+        )
+    else:
+        meal_instruction = (
+            "No meal type was pre-selected. Infer it from what they say, or "
+            "if it's not stated, from the current time (before 11am -> "
+            "breakfast, 11am-3pm -> lunch, 3pm-5pm -> snack, after 5pm -> "
+            "dinner)."
+        )
 
     payload = {
         "model": app.config["ANTHROPIC_AGENT_MODEL"],
@@ -710,34 +743,42 @@ def _run_food_agent(app, job):
             "role": "user",
             "content": (
                 f"Today's date is {today} (current time {now_time} UTC). "
-                "You are a food logging assistant for a personal nutrition "
-                f"tracker. The user has already told the app this is for "
-                f"\"{meal_type}\" -- don't guess a different meal type, use "
-                f"\"{meal_type}\" for every item. They'll describe what they "
-                "ate, sometimes casually, sometimes for a past date. Break "
-                "their message into distinct food/drink items (e.g. \"two "
-                "pieces of wheat toast with jif chunky peanut butter\" is "
-                "separate items for the toast and the peanut butter, since "
-                "they have very different nutrition profiles). For each "
+                "You are the assistant inside WeighTrack, a personal "
+                "nutrition tracker. You can: (1) log new food/drink the user "
+                "describes, (2) adjust an entry already logged if they're "
+                "correcting or changing something (e.g. \"actually the toast "
+                "was 3 slices\", \"change yesterday's lunch to 500 "
+                "calories\"), (3) delete an entry they ask to remove, or "
+                "(4) just answer a question -- not everything is a logging "
+                f"action.\n\n{meal_instruction}\n\n"
+                f"Recently logged entries, for reference if they're "
+                f"adjusting or deleting something (refer to one by its id):\n"
+                f"{recent_context}\n\n"
+                "Break new food into distinct items the same way you always "
+                "do (e.g. toast and peanut butter are separate items, since "
+                "they have very different nutrition profiles). For each new "
                 "item, give your single best rough estimate of calories, "
                 "protein (g), carbs (g), and fat (g) for the stated "
                 "quantity -- these are estimates for personal tracking, not "
-                "medical or nutritional advice. Infer the date from what "
-                "they say (\"today\", \"yesterday\", a specific date, or "
-                "unstated -> today), as an ISO date (YYYY-MM-DD). If the "
-                "message isn't describing food at all (e.g. a question), "
-                "return an empty items list and answer in the reply field "
-                "instead.\n\n"
+                "medical or nutritional advice. Infer the date from context "
+                "(\"today\", \"yesterday\", a specific date, or unstated -> "
+                "today) as an ISO date (YYYY-MM-DD).\n\n"
                 f'User message: "{message}"\n\n'
                 "Respond with ONLY a JSON object, no markdown fences, no "
                 "other text:\n"
                 '{"items": [{"name": "<short name>", "quantity": "<what '
-                'they said, e.g. \'2 slices\'>", "date": "YYYY-MM-DD", '
-                '"calories": <integer>, "protein_g": <number>, "carbs_g": '
-                '<number>, "fat_g": <number>}, ...], "reply": "<a short, '
-                "natural, friendly confirmation of what you logged and the "
-                'total calories -- or your answer, if it wasn\'t a food '
-                'message>"}'
+                'they said, e.g. \'2 slices\'>", "meal_type": "breakfast|'
+                'lunch|dinner|snack", "date": "YYYY-MM-DD", "calories": '
+                '<integer>, "protein_g": <number>, "carbs_g": <number>, '
+                '"fat_g": <number>}, ...], "adjustments": [{"id": <int, '
+                'the id from the recent-entries list above>, "calories": '
+                '<number or null if unchanged>, "protein_g": <number or '
+                'null>, "carbs_g": <number or null>, "fat_g": <number or '
+                'null>, "description": "<new short name, or null if '
+                'unchanged>"}, ...], "deletions": [<id>, ...], "reply": "<a '
+                "short, natural response -- confirm what you did and the "
+                'total calories, or your answer if it wasn\'t a logging '
+                'action>"}'
             ),
         }],
     }
@@ -753,10 +794,19 @@ def _run_food_agent(app, job):
         return None, "Got a response from the AI but couldn't parse it. Try rephrasing."
 
     items = parsed.get("items") or []
-    reply = (parsed.get("reply") or "").strip() or "Logged."
-    batch_id = uuid.uuid4().hex
+    adjustments = parsed.get("adjustments") or []
+    deletions = parsed.get("deletions") or []
+    reply = (parsed.get("reply") or "").strip() or "Done."
+    batch_id = uuid.uuid4().hex if items else None
 
-    created = []
+    def _num(source, key):
+        val = source.get(key)
+        try:
+            return float(val) if val is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    created, adjusted, deleted_ids = [], [], []
     with app.app_context():
         for item in items:
             try:
@@ -771,27 +821,24 @@ def _run_food_agent(app, job):
                     else datetime.combine(item_date, datetime.min.time().replace(hour=12))
                 )
 
+                item_meal_type = meal_type or (item.get("meal_type") or "snack").strip().lower()
+                if item_meal_type not in MEAL_TYPES:
+                    item_meal_type = "snack"
+
                 name = (item.get("name") or "Food item").strip()[:200]
                 quantity = (item.get("quantity") or "").strip()
                 description = f"{name} ({quantity})" if quantity else name
 
-                def _num(key):
-                    val = item.get(key)
-                    try:
-                        return float(val) if val is not None else None
-                    except (TypeError, ValueError):
-                        return None
-
                 entry = FoodLogEntry(
                     food_item_id=None,
                     description=description[:200],
-                    meal_type=meal_type,
+                    meal_type=item_meal_type,
                     servings=1.0,
                     logged_at=logged_at,
-                    ai_calories=_num("calories"),
-                    ai_protein_g=_num("protein_g"),
-                    ai_carbs_g=_num("carbs_g"),
-                    ai_fat_g=_num("fat_g"),
+                    ai_calories=_num(item, "calories"),
+                    ai_protein_g=_num(item, "protein_g"),
+                    ai_carbs_g=_num(item, "carbs_g"),
+                    ai_fat_g=_num(item, "fat_g"),
                     batch_id=batch_id,
                 )
                 db.session.add(entry)
@@ -799,10 +846,39 @@ def _run_food_agent(app, job):
             except Exception:  # noqa: BLE001 -- one malformed item shouldn't drop the rest
                 continue
 
+        for adj in adjustments:
+            try:
+                entry = db.session.get(FoodLogEntry, int(adj.get("id")))
+                if entry is None:
+                    continue
+                if adj.get("calories") is not None:
+                    entry.manual_calories = _num(adj, "calories")
+                if adj.get("protein_g") is not None:
+                    entry.ai_protein_g = _num(adj, "protein_g")
+                if adj.get("carbs_g") is not None:
+                    entry.ai_carbs_g = _num(adj, "carbs_g")
+                if adj.get("fat_g") is not None:
+                    entry.ai_fat_g = _num(adj, "fat_g")
+                if adj.get("description"):
+                    entry.description = str(adj["description"]).strip()[:200]
+                adjusted.append(entry)
+            except (TypeError, ValueError):
+                continue
+
+        for del_id in deletions:
+            try:
+                entry = db.session.get(FoodLogEntry, int(del_id))
+                if entry is not None:
+                    deleted_ids.append(entry.id)
+                    db.session.delete(entry)
+            except (TypeError, ValueError):
+                continue
+
         db.session.commit()
         entries = [e.to_dict() for e in created]
+        adjusted_dicts = [e.to_dict() for e in adjusted]
 
-    return {"reply": reply, "entries": entries}, None
+    return {"reply": reply, "entries": entries, "adjusted": adjusted_dicts, "deleted": deleted_ids}, None
 
 
 def _search_worker(app):
@@ -1063,11 +1139,13 @@ def register_routes(app):
 
     @app.route("/agent/message", methods=["POST"])
     def agent_message():
-        """Natural-language food logging: pick a meal type from the
-        dropdown, describe what you ate in plain language, and it
-        becomes several distinct FoodLogEntry rows directly -- no
-        search, no confirmation step. Same background-job pattern as
-        everything else that calls an external API.
+        """The WeighTrack assistant. Two entry points share this same
+        route: the inline "Tell The Assistant" panel (has a meal-type
+        dropdown -- always sends meal_type) and the general-purpose
+        floating chat button (no dropdown -- meal_type is inferred by
+        Claude from context or time of day when omitted). Either way it
+        can log new food, adjust or delete something already logged, or
+        just answer a question.
         """
         payload = request.get_json(silent=True) or {}
         message = (payload.get("message") or "").strip()
@@ -1076,9 +1154,10 @@ def register_routes(app):
         if len(message) > 2000:
             return jsonify(error="That's a lot -- try breaking it into a shorter message"), 400
 
-        meal_type = (payload.get("meal_type") or "").strip().lower()
-        if meal_type not in MEAL_TYPES:
-            return jsonify(error="Pick a meal type first"), 400
+        raw_meal_type = (payload.get("meal_type") or "").strip().lower()
+        if raw_meal_type and raw_meal_type not in MEAL_TYPES:
+            return jsonify(error="That's not a valid meal type"), 400
+        meal_type = raw_meal_type or None
 
         job_id = uuid.uuid4().hex
         with _jobs_lock:
@@ -1317,6 +1396,10 @@ def register_routes(app):
                 response["entry"] = job["entry"]
             if "entries" in job:
                 response["entries"] = job["entries"]
+            if "adjusted" in job:
+                response["adjusted"] = job["adjusted"]
+            if "deleted" in job:
+                response["deleted"] = job["deleted"]
             if "reply" in job:
                 response["reply"] = job["reply"]
             response["note"] = job.get("note")

@@ -480,6 +480,35 @@ everything correctly, (3) running it twice in a row against an
 already-synced database -- confirmed it doesn't error or duplicate
 columns on a second run.
 
+## Floating chat is now general-purpose, assistant can adjust/delete entries
+
+Two changes:
+
+**Floating chat button** — dropdown removed entirely. It's a plain text
+box now: ask a question, describe a meal (meal type gets inferred from
+context or time of day), or correct something already logged. The
+inline "Tell The Assistant" panel on the Food Library page keeps its
+dropdown, since that's still the faster path when you know exactly
+which meal you're logging.
+
+**The assistant can now adjust and delete, not just create.** Every
+call includes the 20 most recently logged entries (id, name, meal,
+calories) as context, so when you say "actually the toast was 3
+slices" or "delete the coffee I just logged," Claude can identify which
+entry you mean and either update it or remove it -- same background job
+as everything else, same one-message interface either way.
+
+Tested five scenarios end-to-end before shipping: meal type correctly
+inferred when not pre-selected (FAB), an adjustment correctly updates
+the entry and shows the new number on the timeline, a deletion
+correctly removes the entry, a pure question creates nothing and just
+answers, and the inline dropdown still correctly overrides Claude's own
+meal-type guess when it's provided. Also caught and fixed a real bug
+during testing -- the new "recent entries" lookup was running outside
+the Flask app context in the background worker thread, which would
+have crashed every single request with "Working outside of application
+context" if it had shipped as first written.
+
 ## Running it locally
 
 ```bash
