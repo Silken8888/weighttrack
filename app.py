@@ -1263,51 +1263,59 @@ def _rolling_average(weigh_ins, as_of, window_days=7):
     return sum(values) / len(values)
 
 
-def _weigh_in_chart_svg(weigh_ins, days=30):
-    """A 7-day rolling average line, not raw daily dots -- per the
-    original spec, daily weight alone is too noisy to be useful. Plain
-    inline SVG, no charting library.
+def _calculate_bmi(weight_lbs, height_in):
+    """Standard imperial BMI formula: 703 * lbs / inches^2."""
+    if not weight_lbs or not height_in:
+        return None
+    return round(703 * weight_lbs / (height_in ** 2), 1)
+
+
+def _bmi_color(bmi):
+    """Collapses the standard clinical BMI categories (normal/
+    underweight, overweight, obese) into the three colors asked for:
+    green = normal range, yellow = overweight ("moderately over"),
+    red = obese ("severely over"). Underweight is folded into green
+    here since the ask was specifically about being over, not under.
     """
-    if len(weigh_ins) < 2:
+    if bmi is None:
         return None
+    if bmi < 25:
+        return "green"
+    if bmi < 30:
+        return "yellow"
+    return "red"
 
-    today = datetime.utcnow().date()
-    points = []
-    for i in range(days, -1, -1):
-        day = today - timedelta(days=i)
-        avg = _rolling_average(weigh_ins, day)
-        if avg is not None:
-            points.append((day, avg))
 
-    if len(points) < 2:
-        return None
+def _weigh_in_chart_data(weigh_ins):
+    """One point per actual logged weigh-in (not synthesized empty
+    days -- per the direct request, this tracks each real day, not a
+    smoothed average), each carrying that day's calories consumed and
+    burned for the hover tooltip.
+    """
+    data = []
+    for w in weigh_ins:
+        day = w.logged_at.date()
+        start = datetime.combine(day, datetime.min.time())
+        end = start + timedelta(days=1)
 
-    values = [v for _, v in points]
-    lo, hi = min(values), max(values)
-    span = (hi - lo) or 1.0
+        day_food = db.session.execute(
+            db.select(FoodLogEntry).filter(FoodLogEntry.logged_at >= start, FoodLogEntry.logged_at < end)
+        ).scalars().all()
+        consumed = round(sum(e.calories or 0 for e in day_food))
 
-    width, height, pad = 600, 160, 12
-    usable_w = width - 2 * pad
-    usable_h = height - 2 * pad
+        day_exercise = db.session.execute(
+            db.select(ExerciseEntry).filter(ExerciseEntry.logged_at >= start, ExerciseEntry.logged_at < end)
+        ).scalars().all()
+        burned = round(sum(e.calories_burned or 0 for e in day_exercise))
 
-    coords = []
-    for i, (_, v) in enumerate(points):
-        x = pad + (i / (len(points) - 1)) * usable_w
-        y = pad + (1 - (v - lo) / span) * usable_h
-        coords.append((round(x, 1), round(y, 1)))
-
-    polyline_points = " ".join(f"{x},{y}" for x, y in coords)
-    last_x, last_y = coords[-1]
-
-    return {
-        "polyline_points": polyline_points,
-        "last_x": last_x,
-        "last_y": last_y,
-        "width": width,
-        "height": height,
-        "lo": round(lo, 1),
-        "hi": round(hi, 1),
-    }
+        data.append({
+            "date": day.isoformat(),
+            "label": day.strftime("%b %-d"),
+            "weight": w.weight_lbs,
+            "consumed": consumed,
+            "burned": burned,
+        })
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -1385,6 +1393,9 @@ def register_routes(app):
         start_date = profile.program_start_date or date(2026, 6, 28)
         days_since_start = max(0, (datetime.utcnow().date() - start_date).days)
 
+        bmi = _calculate_bmi(latest_weight, profile.height_in)
+        bmi_color = _bmi_color(bmi)
+
         return {
             "items": _all_food_items(),
             "active_nav": "food",
@@ -1395,6 +1406,8 @@ def register_routes(app):
             "calorie_target": calorie_target,
             "pounds_lost": pounds_lost,
             "goal_weight": goal_weight,
+            "bmi": bmi,
+            "bmi_color": bmi_color,
             "lbs_to_goal": lbs_to_goal,
             "days_since_start": days_since_start,
             "rolling_avg": round(rolling_avg, 1) if rolling_avg is not None else None,
@@ -1834,7 +1847,12 @@ def register_routes(app):
         vacations = _all_vacation_periods()
         streak = _compute_streak(weigh_ins, vacations)
         rolling_avg = _rolling_average(weigh_ins, datetime.utcnow().date()) if weigh_ins else None
-        chart = _weigh_in_chart_svg(weigh_ins)
+        chart_data = _weigh_in_chart_data(weigh_ins)
+
+        profile = _get_profile()
+        latest_weight = weigh_ins[-1].weight_lbs if weigh_ins else None
+        bmi = _calculate_bmi(latest_weight, profile.height_in)
+        bmi_color = _bmi_color(bmi)
 
         milestones = []
         if len(weigh_ins) == 1:
@@ -1853,8 +1871,10 @@ def register_routes(app):
             weigh_ins=list(reversed(weigh_ins)),
             streak=streak,
             rolling_avg=round(rolling_avg, 1) if rolling_avg is not None else None,
-            chart=chart,
+            chart_data=chart_data,
             milestones=milestones,
+            bmi=bmi,
+            bmi_color=bmi_color,
         )
 
     @app.route("/weigh-in/add", methods=["POST"])
@@ -1974,6 +1994,9 @@ def register_routes(app):
         if calorie_target is not None:
             remaining = calorie_target - consumed + burned
 
+        bmi = _calculate_bmi(latest_weight, profile.height_in)
+        bmi_color = _bmi_color(bmi)
+
         return render_template(
             "dashboard.html",
             active_nav="dashboard",
@@ -1985,6 +2008,8 @@ def register_routes(app):
             burned=burned,
             remaining=remaining,
             exercise_today=exercise_today,
+            bmi=bmi,
+            bmi_color=bmi_color,
         )
 
     @app.route("/dashboard/profile", methods=["POST"])

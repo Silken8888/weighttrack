@@ -189,7 +189,7 @@ button { font-family: inherit; cursor: pointer; }
 
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin: 28px 0 8px;
 }
@@ -225,6 +225,9 @@ button { font-family: inherit; cursor: pointer; }
 
 .stat-card__value--coral { color: var(--coral); }
 .stat-card__value--teal { color: var(--teal); }
+.stat-card__value--bmi-green { color: var(--green); }
+.stat-card__value--bmi-yellow { color: var(--gold); }
+.stat-card__value--bmi-red { color: var(--danger); }
 .stat-card__value--muted { color: var(--text-faint); font-size: 15px; }
 .stat-card__value--muted a { color: var(--text-faint); text-decoration: underline; }
 
@@ -967,7 +970,7 @@ button { font-family: inherit; cursor: pointer; }
 
   .splash-screen__row {
     display: flex;
-    gap: 40px;
+    gap: 28px;
     justify-content: center;
     margin: 0 0 40px;
   }
@@ -986,6 +989,10 @@ button { font-family: inherit; cursor: pointer; }
   .splash-screen__hero--green .splash-screen__value { color: var(--green); }
   .splash-screen__stat--red .splash-screen__value { color: #fb6f6f; }
   .splash-screen__stat--gold .splash-screen__value { color: var(--gold); }
+  .splash-screen__stat--bmi-green .splash-screen__value { color: var(--green); }
+  .splash-screen__stat--bmi-yellow .splash-screen__value { color: var(--gold); }
+  .splash-screen__stat--bmi-red .splash-screen__value { color: var(--danger); }
+  .splash-screen__stat--bmi-muted .splash-screen__value { color: var(--text-muted); }
 
   .splash-screen__label {
     display: block;
@@ -1053,9 +1060,9 @@ button { font-family: inherit; cursor: pointer; }
 
 .mobile-hero__numbers {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  max-width: 640px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  max-width: 680px;
   margin: 0 auto;
 }
 
@@ -1090,6 +1097,10 @@ button { font-family: inherit; cursor: pointer; }
 .mobile-hero__stat--green .mobile-hero__value { color: var(--green); }
 .mobile-hero__stat--red .mobile-hero__value { color: #fb6f6f; }
 .mobile-hero__stat--gold .mobile-hero__value { color: var(--gold); }
+.mobile-hero__stat--bmi-green .mobile-hero__value { color: var(--green); }
+.mobile-hero__stat--bmi-yellow .mobile-hero__value { color: var(--gold); }
+.mobile-hero__stat--bmi-red .mobile-hero__value { color: var(--danger); }
+.mobile-hero__stat--bmi-muted .mobile-hero__value { color: var(--text-muted); }
 
 .mobile-hero__label {
   font-family: var(--font-body);
@@ -1208,29 +1219,17 @@ button { font-family: inherit; cursor: pointer; }
   margin-bottom: 28px;
 }
 
-.weigh-in-chart {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
-.chart-panel__body {
+.chart-panel__canvas-wrap {
   position: relative;
+  height: 220px;
 }
 
-.chart-panel__axis-label {
-  position: absolute;
-  right: 0;
+.chart-panel__hint {
   font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-faint);
-  background: var(--surface);
-  padding: 2px 4px;
+  margin: 10px 0 0;
 }
-
-.chart-panel__axis-label--top { top: 0; }
-.chart-panel__axis-label--bottom { bottom: 0; }
 
 .weigh-in-list {
   list-style: none;
@@ -1598,7 +1597,7 @@ button { font-family: inherit; cursor: pointer; }
   .site-header__row { flex-direction: column; }
   .stamp { text-align: left; width: 100%; margin-top: 10px; }
   .stamp__datetime { font-size: 18px; white-space: normal; }
-  .stats-row { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .stat-card { padding: 10px 12px; }
   .search-form { flex-direction: column; }
   .search-form .btn { width: 100%; }

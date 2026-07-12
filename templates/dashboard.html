@@ -29,6 +29,14 @@
         <p class="stat-card__value stat-card__value--muted">&mdash;</p>
       {% endif %}
     </div>
+    <div class="stat-card">
+      <p class="stat-card__label">BMI</p>
+      {% if bmi is not none %}
+        <p class="stat-card__value stat-card__value--bmi-{{ bmi_color }}">{{ bmi }}</p>
+      {% else %}
+        <p class="stat-card__value stat-card__value--muted">Set Height Below</p>
+      {% endif %}
+    </div>
   </section>
 
   <section class="search-panel">

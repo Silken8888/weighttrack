@@ -40,6 +40,14 @@
         <p class="stat-card__value stat-card__value--muted">No Data Yet</p>
       {% endif %}
     </div>
+    <div class="stat-card">
+      <p class="stat-card__label">BMI</p>
+      {% if bmi is not none %}
+        <p class="stat-card__value stat-card__value--bmi-{{ bmi_color }}">{{ bmi }}</p>
+      {% else %}
+        <p class="stat-card__value stat-card__value--muted"><a href="{{ url_for('dashboard') }}">Set Height</a></p>
+      {% endif %}
+    </div>
   </section>
 
   {% if milestones %}
@@ -50,17 +58,13 @@
     </div>
   {% endif %}
 
-  {% if chart %}
+  {% if chart_data|length > 1 %}
     <section class="chart-panel">
-      <p class="search-panel__eyebrow">7-Day Rolling Average</p>
-      <div class="chart-panel__body">
-        <span class="chart-panel__axis-label chart-panel__axis-label--top">{{ chart.hi }} Lbs</span>
-        <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" class="weigh-in-chart" role="img" aria-label="7-day rolling average weight trend, higher values at top">
-          <polyline points="{{ chart.polyline_points }}" fill="none" stroke="#2dd4bf" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-          <circle cx="{{ chart.last_x }}" cy="{{ chart.last_y }}" r="4.5" fill="#2dd4bf" />
-        </svg>
-        <span class="chart-panel__axis-label chart-panel__axis-label--bottom">{{ chart.lo }} Lbs</span>
+      <p class="search-panel__eyebrow">Weight By Day</p>
+      <div class="chart-panel__canvas-wrap">
+        <canvas id="weigh-in-chart" height="220"></canvas>
       </div>
+      <p class="chart-panel__hint">Hover a point for that day's calories in and out.</p>
     </section>
   {% endif %}
 
@@ -90,4 +94,72 @@
     {% endif %}
   </section>
 
+{% endblock %}
+
+{% block scripts %}
+{% if chart_data|length > 1 %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+  (function () {
+    const chartData = {{ chart_data | tojson }};
+    const canvas = document.getElementById("weigh-in-chart");
+    if (!canvas || typeof Chart === "undefined") return;
+
+    new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: {
+        labels: chartData.map(function (d) { return d.label; }),
+        datasets: [{
+          label: "Weight",
+          data: chartData.map(function (d) { return d.weight; }),
+          borderColor: "#8fefc0",
+          backgroundColor: "rgba(143, 239, 192, 0.12)",
+          pointBackgroundColor: "#8fefc0",
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          tension: 0.25,
+          fill: true,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#22222c",
+            titleColor: "#f5f5f7",
+            bodyColor: "#c9c9d4",
+            borderColor: "#2d2d3a",
+            borderWidth: 1,
+            padding: 10,
+            titleFont: { family: "JetBrains Mono" },
+            bodyFont: { family: "JetBrains Mono" },
+            callbacks: {
+              label: function (ctx) {
+                return "Weight: " + ctx.parsed.y + " lbs";
+              },
+              afterBody: function (items) {
+                const d = chartData[items[0].dataIndex];
+                return ["Consumed: " + d.consumed + " cal", "Burned: " + d.burned + " cal"];
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            ticks: { color: "#6b6b78", font: { family: "JetBrains Mono", size: 10 } },
+            grid: { color: "#22222c" },
+          },
+          y: {
+            ticks: { color: "#6b6b78", font: { family: "JetBrains Mono", size: 10 } },
+            grid: { color: "#22222c" },
+          },
+        },
+      },
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}

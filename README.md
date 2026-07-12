@@ -734,6 +734,32 @@ panel and the floating chat, using the browser's native Web Speech API
 call. Degrades gracefully (button visibly disables with an explanatory
 tooltip) in browsers that don't support it rather than erroring.
 
+## Real per-day chart with hover data, plus BMI everywhere
+
+**Chart rebuilt entirely.** Replaced the 7-day rolling-average SVG with
+a genuine per-day chart (Chart.js, loaded via CDN only on this page --
+the rest of the app stays dependency-free) plotting one point per
+actual logged weigh-in, not a smoothed average. Hovering a point shows
+that day's calories consumed and burned, computed fresh from
+`FoodLogEntry`/`ExerciseEntry` per day. Tested the exact reported
+scenario directly: added a new weigh-in (349.6) and confirmed it
+appears in the chart data on the very next page load, and confirmed
+the hover payload for a day with real food/exercise logged shows the
+correct consumed/burned numbers, not placeholders.
+
+**BMI added everywhere**, per "add that metric to all major tiles":
+Food Library's stat row, the mobile hero gradient tile, the splash
+screen, the Weigh-In Log's stat row, and the Dashboard's stat row --
+five locations, all pulling from one shared `_calculate_bmi()`/
+`_bmi_color()` pair so they can't drift out of sync with each other.
+Color-coded green (under 25, "good"), yellow (25-29.9, "moderately
+over"), red (30+, "severely over") -- verified the formula against two
+known real-world reference BMI values and confirmed all three tier
+boundaries land exactly where expected (24.9 green, 25.0 yellow, 29.9
+yellow, 30.0 red) before wiring it into any template. Falls back to a
+"Set Height" prompt rather than a blank or wrong number when the
+profile's height isn't filled in yet.
+
 ## Running it locally
 
 ```bash

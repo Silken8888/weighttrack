@@ -29,6 +29,10 @@
           <span class="splash-screen__value splash-screen__value--small">{{ goal_weight|round(1) if goal_weight is not none else '--' }}</span>
           <span class="splash-screen__label">Goal</span>
         </div>
+        <div class="splash-screen__stat splash-screen__stat--bmi-{{ bmi_color or 'muted' }}">
+          <span class="splash-screen__value splash-screen__value--small">{{ bmi if bmi is not none else '--' }}</span>
+          <span class="splash-screen__label">BMI</span>
+        </div>
       </div>
 
       <p class="splash-screen__hint">Tap anywhere to continue</p>
@@ -55,6 +59,15 @@
           {% else %}
             <span class="mobile-hero__value mobile-hero__value--muted"><a href="{{ url_for('dashboard') }}">Set</a></span>
             <span class="mobile-hero__label">Goal</span>
+          {% endif %}
+        </div>
+        <div class="mobile-hero__stat mobile-hero__stat--bmi-{{ bmi_color or 'muted' }}">
+          {% if bmi is not none %}
+            <span class="mobile-hero__value">{{ bmi }}</span>
+            <span class="mobile-hero__label">BMI</span>
+          {% else %}
+            <span class="mobile-hero__value mobile-hero__value--muted"><a href="{{ url_for('dashboard') }}">Set</a></span>
+            <span class="mobile-hero__label">BMI</span>
           {% endif %}
         </div>
       </div>
@@ -102,6 +115,14 @@
       <p class="stat-card__value stat-card__value--coral">
         {{ calories_today if calories_today is not none else 0 }} <span>{{ '/ ' ~ calorie_target ~ ' Cal' if calorie_target else 'Cal' }}</span>
       </p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-card__label">BMI</p>
+      {% if bmi is not none %}
+        <p class="stat-card__value stat-card__value--bmi-{{ bmi_color }}">{{ bmi }}</p>
+      {% else %}
+        <p class="stat-card__value stat-card__value--muted"><a href="{{ url_for('dashboard') }}">Set Height</a></p>
+      {% endif %}
     </div>
   </section>
 
