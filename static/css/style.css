@@ -40,7 +40,7 @@
   --radius-sm: 12px;
   --radius-pill: 999px;
 
-  --max-width: 1100px;
+  --max-width: 1500px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -640,6 +640,10 @@ button { font-family: inherit; cursor: pointer; }
   margin-bottom: 16px;
 }
 
+.library-header--center {
+  justify-content: center;
+}
+
 .library-header h2 {
   font-family: var(--font-display);
   font-weight: 700;
@@ -1033,6 +1037,61 @@ button { font-family: inherit; cursor: pointer; }
   animation: pop-in 0.25s ease-out;
 }
 
+.mobile-hero__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.mobile-hero__gradient--primary,
+.mobile-hero__gradient--secondary {
+  max-width: none;
+  margin: 0;
+}
+
+.mobile-hero__hero-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: rgba(20, 20, 26, 0.75);
+  border-radius: var(--radius-md);
+  padding: 22px 40px;
+  width: fit-content;
+  margin: 6px auto 4px;
+}
+
+.mobile-hero__hero-value {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(40px, 8vw, 64px);
+  line-height: 1;
+  color: var(--teal);
+}
+
+.mobile-hero__hero-label {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.mobile-hero__numbers--three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.mobile-hero__numbers--three .mobile-hero__stat {
+  padding: 16px 6px;
+}
+
+.mobile-hero__numbers--three .mobile-hero__value {
+  font-size: clamp(18px, 4vw, 28px);
+}
+
 .mobile-hero__gradient {
   position: relative;
   overflow: hidden;
@@ -1114,8 +1173,8 @@ button { font-family: inherit; cursor: pointer; }
 
 .mobile-hero__row {
   display: grid;
-  grid-template-columns: 1fr minmax(auto, 680px) 1fr;
-  align-items: stretch;
+  grid-template-columns: minmax(300px, 1fr) minmax(auto, 680px) minmax(300px, 1fr);
+  align-items: start;
   gap: 20px;
 }
 
@@ -1145,7 +1204,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 .mystery-year__button {
-  align-self: flex-start;
+  align-self: center;
 }
 
 .mystery-year__reveal {
@@ -1157,9 +1216,12 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 .mystery-year__year {
+  display: block;
+  text-align: center;
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: 32px;
+  font-size: 34px;
+  letter-spacing: 0.02em;
   background: var(--gradient-accent);
   -webkit-background-clip: text;
   background-clip: text;

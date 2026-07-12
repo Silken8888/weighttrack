@@ -1182,6 +1182,57 @@ prepped immediately after the pool loads, before every one of several
 rapid clicks, and immediately after the pool resets once every year's
 had a turn.
 
+## Mystery Year reveals now include a matching image
+
+Checked what Wikipedia's on-this-day API actually returns before
+building anything: each event's linked article often carries a real
+thumbnail image (`pages[0].thumbnail.source`), specific to that event
+-- confirmed 41 of 47 events had one on a live test run. Wired that
+through: the reveal now shows that image alongside the year and
+description when one exists, and simply omits it (no broken-image
+icon, no layout gap) for the handful of events that don't have one.
+
+## Corrected: year graphic, not a Wikipedia photo, plus a real layout fix
+
+Reverted the Wikipedia thumbnail entirely -- wrong interpretation of
+"matching graphic." Built an actual year graphic instead: the year now
+renders inside a gradient pill/medallion (matching the same pill shape
+already used for the button elsewhere on this card), not plain colored
+text and not a photo.
+
+**Found the real cause of the dead space and narrow columns**: the
+whole page was capped at `max-width: 1100px`, so once the 680px hero
+tile took its share, the two side columns were fighting over roughly
+190px each -- explains the text wrapping awkwardly in the screenshots.
+Widened the page container to 1500px specifically so those columns
+have real room (other pages just get a bit more breathing room on a
+wide screen, doesn't hurt them). Also found why the cards had so much
+empty space underneath their content: `align-items: stretch` was
+forcing both side cards to match the *hero's* height, not their own.
+Changed to `align-items: start` so each card is only as tall as what's
+actually in it.
+
+## Hero tile split into two, Mystery Year restyled, per the approved mockup
+
+Built exactly what was mocked up and approved: the center gradient tile
+is now two stacked tiles -- the top holds just "Day N" and one large,
+centered Lbs Lost figure (the most prominent number on the page now),
+the bottom holds Current/Goal/BMI enlarged in a 3-column row. Mystery
+Year's title and revealed year are now centered (the year back to
+plain gradient-clipped text, matching the reference image, not the
+pill/badge treatment from the previous session); the event description
+stays left-aligned underneath, as requested.
+
+Checked two things that turned out to already be correctly built from
+earlier in this session rather than needing new work: Patriots News was
+already capped at 4 items, and the daily-refresh guarantee for
+Patriots (a new calendar day always forces a fresh fetch, not just the
+2-hour timer) was already in place. Didn't just trust that and move on
+though -- wrote a real test simulating a fetch that's recent by the
+clock but from the previous calendar day, run the way production
+actually calls it (inside a request context), and confirmed the
+refresh fires correctly.
+
 ## Running it locally
 
 ```bash

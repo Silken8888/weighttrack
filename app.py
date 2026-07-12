@@ -887,7 +887,7 @@ def _fetch_patriots_news():
         return None
 
     items = []
-    for item in root.findall("./channel/item")[:5]:
+    for item in root.findall("./channel/item")[:4]:
         title = item.findtext("title")
         link = item.findtext("link")
         pub_date = item.findtext("pubDate")
@@ -921,12 +921,22 @@ def _maybe_refresh_daily_extras(app, local_date):
     """Kicks off a background refresh if the cache is stale and nothing
     is already fetching -- always returns immediately either way, the
     route reads whatever's cached right now rather than waiting.
+
+    Patriots news is stale after 2 hours OR a new local day has
+    started, whichever comes first -- the 2-hour window alone already
+    guarantees at least daily freshness, but the day-boundary check
+    makes that an explicit, direct guarantee of its own rather than a
+    side effect of the timer.
     """
     global _daily_extras_refreshing
     with _daily_extras_lock:
         on_this_day_stale = _daily_extras_cache["on_this_day_date"] != local_date
         fetched_at = _daily_extras_cache["patriots_fetched_at"]
-        patriots_stale = fetched_at is None or (datetime.utcnow() - fetched_at) > timedelta(hours=2)
+        patriots_stale = (
+            fetched_at is None
+            or (datetime.utcnow() - fetched_at) > timedelta(hours=2)
+            or _to_local_date(fetched_at) != local_date
+        )
         if not (on_this_day_stale or patriots_stale) or _daily_extras_refreshing:
             return
         _daily_extras_refreshing = True

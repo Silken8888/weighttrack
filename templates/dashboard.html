@@ -34,7 +34,7 @@
   <section class="mobile-hero">
     <div class="mobile-hero__row">
       <div class="hero-flank hero-flank--left extras-card" id="mystery-year-card">
-        <div class="library-header">
+        <div class="library-header library-header--center">
           <h2>Mystery Year</h2>
         </div>
         <div class="mystery-year__body" id="mystery-year-body">
@@ -47,35 +47,39 @@
         </div>
       </div>
 
-      <div class="mobile-hero__gradient">
-        <p class="mobile-hero__day">Day {{ days_since_start }}</p>
+      <div class="mobile-hero__stack">
+        <div class="mobile-hero__gradient mobile-hero__gradient--primary">
+          <p class="mobile-hero__day">Day {{ days_since_start }}</p>
+          <div class="mobile-hero__hero-stat">
+            <span class="mobile-hero__hero-value">{{ pounds_lost if pounds_lost is not none else '--' }}</span>
+            <span class="mobile-hero__hero-label">Lbs Lost</span>
+          </div>
+        </div>
 
-        <div class="mobile-hero__numbers">
-          <div class="mobile-hero__stat mobile-hero__stat--green">
-            <span class="mobile-hero__value">{{ pounds_lost if pounds_lost is not none else '--' }}</span>
-            <span class="mobile-hero__label">Lbs Lost</span>
-          </div>
-          <div class="mobile-hero__stat mobile-hero__stat--red">
-            <span class="mobile-hero__value">{{ latest_weight|round(1) if latest_weight is not none else '--' }}</span>
-            <span class="mobile-hero__label">Current</span>
-          </div>
-          <div class="mobile-hero__stat mobile-hero__stat--gold">
-            {% if goal_weight is not none %}
-              <span class="mobile-hero__value">{{ goal_weight|round(1) }}</span>
-              <span class="mobile-hero__label">Goal</span>
-            {% else %}
-              <span class="mobile-hero__value mobile-hero__value--muted"><a href="{{ url_for('food_library') }}">Set</a></span>
-              <span class="mobile-hero__label">Goal</span>
-            {% endif %}
-          </div>
-          <div class="mobile-hero__stat mobile-hero__stat--bmi-{{ bmi_color or 'muted' }}">
-            {% if bmi is not none %}
-              <span class="mobile-hero__value">{{ bmi }}</span>
-              <span class="mobile-hero__label">BMI</span>
-            {% else %}
-              <span class="mobile-hero__value mobile-hero__value--muted"><a href="{{ url_for('food_library') }}">Set</a></span>
-              <span class="mobile-hero__label">BMI</span>
-            {% endif %}
+        <div class="mobile-hero__gradient mobile-hero__gradient--secondary">
+          <div class="mobile-hero__numbers mobile-hero__numbers--three">
+            <div class="mobile-hero__stat mobile-hero__stat--red">
+              <span class="mobile-hero__value">{{ latest_weight|round(1) if latest_weight is not none else '--' }}</span>
+              <span class="mobile-hero__label">Current</span>
+            </div>
+            <div class="mobile-hero__stat mobile-hero__stat--gold">
+              {% if goal_weight is not none %}
+                <span class="mobile-hero__value">{{ goal_weight|round(1) }}</span>
+                <span class="mobile-hero__label">Goal</span>
+              {% else %}
+                <span class="mobile-hero__value mobile-hero__value--muted"><a href="{{ url_for('food_library') }}">Set</a></span>
+                <span class="mobile-hero__label">Goal</span>
+              {% endif %}
+            </div>
+            <div class="mobile-hero__stat mobile-hero__stat--bmi-{{ bmi_color or 'muted' }}">
+              {% if bmi is not none %}
+                <span class="mobile-hero__value">{{ bmi }}</span>
+                <span class="mobile-hero__label">BMI</span>
+              {% else %}
+                <span class="mobile-hero__value mobile-hero__value--muted"><a href="{{ url_for('food_library') }}">Set</a></span>
+                <span class="mobile-hero__label">BMI</span>
+              {% endif %}
+            </div>
           </div>
         </div>
       </div>
