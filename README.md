@@ -945,6 +945,19 @@ If the timeline issue is still showing after this deploy, a hard
 refresh (Cmd+Shift+R / Ctrl+Shift+R) once should clear out whatever's
 currently cached; every deploy after this one won't need that.
 
+## Dashboard: Weigh-In Entries and Exercise History in two columns
+
+Per direct request, split the Dashboard's history section into two
+columns side by side (Weigh-In Entries left, Exercise History right),
+with Today's Timeline moved to a full-width section below both.
+Collapses back to a single stacked column under 860px so it doesn't
+get cramped on mobile/tablet -- the two-column layout is a desktop-
+width thing, not something that should survive onto a phone screen.
+Caught and fixed a duplicate closing `</section>` tag left over from
+the restructuring during testing, then confirmed the actual rendered
+order is correct (columns first, timeline after) and that delete/
+clear-day actions still work correctly inside the new layout.
+
 ## Running it locally
 
 ```bash

@@ -138,30 +138,68 @@
     </section>
   {% endif %}
 
-  <section>
-    <div class="library-header">
-      <h2>Weigh-In Entries</h2>
-      <span class="library-count">{{ weigh_ins|length }} Total</span>
-    </div>
-    {% if weigh_ins %}
-      <ul class="weigh-in-list">
-        {% for w in weigh_ins %}
-          <li class="weigh-in-row">
-            <div>
-              <p class="weigh-in-row__weight">{{ w.weight_lbs }} <span>Lbs</span></p>
-              <p class="weigh-in-row__date">{{ w.logged_at | local_date }}</p>
-              {% if w.notes %}<p class="weigh-in-row__notes">{{ w.notes }}</p>{% endif %}
-            </div>
-            <button type="button" class="timeline__remove" data-delete-weigh-in-id="{{ w.id }}" aria-label="Remove entry">&times;</button>
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <div class="empty-state">
-        No weigh-ins logged yet. Head to the Log tab to add one.
+  <div class="dashboard-columns">
+    <section class="dashboard-column">
+      <div class="library-header">
+        <h2>Weigh-In Entries</h2>
+        <span class="library-count">{{ weigh_ins|length }} Total</span>
       </div>
-    {% endif %}
-  </section>
+      {% if weigh_ins %}
+        <ul class="weigh-in-list">
+          {% for w in weigh_ins %}
+            <li class="weigh-in-row">
+              <div>
+                <p class="weigh-in-row__weight">{{ w.weight_lbs }} <span>Lbs</span></p>
+                <p class="weigh-in-row__date">{{ w.logged_at | local_date }}</p>
+                {% if w.notes %}<p class="weigh-in-row__notes">{{ w.notes }}</p>{% endif %}
+              </div>
+              <button type="button" class="timeline__remove" data-delete-weigh-in-id="{{ w.id }}" aria-label="Remove entry">&times;</button>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty-state">
+          No weigh-ins logged yet. Head to the Log tab to add one.
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="dashboard-column">
+      <div class="library-header">
+        <h2>Exercise History</h2>
+        <span class="library-count">Last 30 Days</span>
+      </div>
+      {% if exercise_history %}
+        {% for day in exercise_history %}
+          <div class="exercise-day-group">
+            <p class="exercise-day-group__label">
+              {{ day.label }}
+              <span>
+                {{ day.total }} Cal Total
+                <button type="button" class="exercise-day-group__clear" data-clear-day="{{ day.date.isoformat() }}">Clear Day</button>
+              </span>
+            </p>
+            <ul class="weigh-in-list">
+              {% for e in day.entries %}
+                <li class="weigh-in-row">
+                  <div>
+                    <p class="weigh-in-row__weight">{{ e.activity }}</p>
+                    <p class="weigh-in-row__date">{{ e.logged_at | local_time }}</p>
+                  </div>
+                  <div class="weigh-in-row__right">
+                    <span class="timeline__cals">{{ e.calories_burned|round|int }} Cal</span>
+                    <button type="button" class="timeline__remove" data-delete-exercise-id="{{ e.id }}" aria-label="Remove entry">&times;</button>
+                  </div>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state">Nothing logged in the last 30 days.</div>
+      {% endif %}
+    </section>
+  </div>
 
   <section>
     <div class="library-header">
@@ -232,42 +270,6 @@
       <div class="empty-state">
         Nothing logged yet today. Head to the Log tab to add something.
       </div>
-    {% endif %}
-  </section>
-
-  <section>
-    <div class="library-header">
-      <h2>Exercise History</h2>
-      <span class="library-count">Last 30 Days</span>
-    </div>
-    {% if exercise_history %}
-      {% for day in exercise_history %}
-        <div class="exercise-day-group">
-          <p class="exercise-day-group__label">
-            {{ day.label }}
-            <span>
-              {{ day.total }} Cal Total
-              <button type="button" class="exercise-day-group__clear" data-clear-day="{{ day.date.isoformat() }}">Clear Day</button>
-            </span>
-          </p>
-          <ul class="weigh-in-list">
-            {% for e in day.entries %}
-              <li class="weigh-in-row">
-                <div>
-                  <p class="weigh-in-row__weight">{{ e.activity }}</p>
-                  <p class="weigh-in-row__date">{{ e.logged_at | local_time }}</p>
-                </div>
-                <div class="weigh-in-row__right">
-                  <span class="timeline__cals">{{ e.calories_burned|round|int }} Cal</span>
-                  <button type="button" class="timeline__remove" data-delete-exercise-id="{{ e.id }}" aria-label="Remove entry">&times;</button>
-                </div>
-              </li>
-            {% endfor %}
-          </ul>
-        </div>
-      {% endfor %}
-    {% else %}
-      <div class="empty-state">Nothing logged in the last 30 days.</div>
     {% endif %}
   </section>
 

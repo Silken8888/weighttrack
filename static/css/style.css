@@ -1239,6 +1239,25 @@ button { font-family: inherit; cursor: pointer; }
   gap: 8px;
 }
 
+.dashboard-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.dashboard-column .weigh-in-list,
+.dashboard-column .exercise-day-group:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 860px) {
+  .dashboard-columns {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+
 .exercise-day-group {
   margin-bottom: 20px;
 }
