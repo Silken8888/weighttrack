@@ -1262,6 +1262,33 @@ button { font-family: inherit; cursor: pointer; }
   margin-bottom: 20px;
 }
 
+.timeline-day-group {
+  margin-bottom: 28px;
+}
+
+.timeline-day-group__label {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  margin: 0 0 14px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--surface-2);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.timeline-day-group__label span {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .exercise-day-group__label {
   font-family: var(--font-body);
   font-weight: 700;

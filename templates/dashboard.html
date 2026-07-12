@@ -203,72 +203,80 @@
 
   <section>
     <div class="library-header">
-      <h2>Today's Timeline</h2>
-      <span class="library-count">{{ log_entries|length }} Entr{{ 'y' if log_entries|length == 1 else 'ies' }}</span>
+      <h2>Recent Timeline</h2>
+      <span class="library-count">Last 7 Days</span>
     </div>
 
-    {% if log_entries %}
-      <ol class="timeline" id="timeline-list">
-        {% for entry in log_entries %}
-          <li class="timeline__item timeline__item--{{ entry.meal_type }}" data-log-id="{{ entry.id }}">
-            <span class="timeline__dot"></span>
-            <div class="timeline__card">
-              <div class="timeline__main">
-                {% if entry.photos %}
-                  <div class="timeline__photo-strip">
-                    {% for photo in entry.photos %}
-                      <img class="timeline__thumb" src="{{ photo.url }}" alt="" loading="lazy" onerror="this.style.display='none'">
-                    {% endfor %}
-                  </div>
-                {% elif entry.display_photo_url %}
-                  <img class="timeline__thumb" src="{{ entry.display_photo_url }}" alt="" loading="lazy">
-                {% endif %}
-                <div>
-                  <div class="timeline__meta">
-                    <span class="timeline__meal">{{ entry.meal_type|capitalize }}</span>
-                    <span class="timeline__time">{{ entry.logged_at | local_time }}</span>
-                    {% if entry.is_photo_logged and entry.ai_calories is not none and entry.manual_calories is none %}
-                      <span class="timeline__ai-badge">AI Estimate</span>
+    {% if timeline_history %}
+      {% for day in timeline_history %}
+        <div class="timeline-day-group">
+          <p class="timeline-day-group__label">
+            {{ day.label }}
+            <span>{{ day.total }} Cal Total</span>
+          </p>
+          <ol class="timeline">
+            {% for entry in day.entries %}
+              <li class="timeline__item timeline__item--{{ entry.meal_type }}" data-log-id="{{ entry.id }}">
+                <span class="timeline__dot"></span>
+                <div class="timeline__card">
+                  <div class="timeline__main">
+                    {% if entry.photos %}
+                      <div class="timeline__photo-strip">
+                        {% for photo in entry.photos %}
+                          <img class="timeline__thumb" src="{{ photo.url }}" alt="" loading="lazy" onerror="this.style.display='none'">
+                        {% endfor %}
+                      </div>
+                    {% elif entry.display_photo_url %}
+                      <img class="timeline__thumb" src="{{ entry.display_photo_url }}" alt="" loading="lazy">
                     {% endif %}
+                    <div>
+                      <div class="timeline__meta">
+                        <span class="timeline__meal">{{ entry.meal_type|capitalize }}</span>
+                        <span class="timeline__time">{{ entry.logged_at | local_time }}</span>
+                        {% if entry.is_photo_logged and entry.ai_calories is not none and entry.manual_calories is none %}
+                          <span class="timeline__ai-badge">AI Estimate</span>
+                        {% endif %}
+                      </div>
+                      <p class="timeline__name">{{ entry.display_name }}</p>
+                      {% if entry.protein_g is not none or entry.carbs_g is not none or entry.fat_g is not none %}
+                        <p class="timeline__macros">
+                          {%- if entry.protein_g is not none %}{{ entry.protein_g|round|int }}g Protein{% endif -%}
+                          {%- if entry.carbs_g is not none %} &middot; {{ entry.carbs_g|round|int }}g Carbs{% endif -%}
+                          {%- if entry.fat_g is not none %} &middot; {{ entry.fat_g|round|int }}g Fat{% endif -%}
+                        </p>
+                      {% endif %}
+                    </div>
                   </div>
-                  <p class="timeline__name">{{ entry.display_name }}</p>
-                  {% if entry.protein_g is not none or entry.carbs_g is not none or entry.fat_g is not none %}
-                    <p class="timeline__macros">
-                      {%- if entry.protein_g is not none %}{{ entry.protein_g|round|int }}g Protein{% endif -%}
-                      {%- if entry.carbs_g is not none %} &middot; {{ entry.carbs_g|round|int }}g Carbs{% endif -%}
-                      {%- if entry.fat_g is not none %} &middot; {{ entry.fat_g|round|int }}g Fat{% endif -%}
-                    </p>
-                  {% endif %}
+                  <div class="timeline__right">
+                    <span class="timeline__cals">{{ entry.calories|round|int if entry.calories is not none else '--' }} Cal</span>
+                    {% if entry.is_photo_logged %}
+                      <button
+                        type="button"
+                        class="timeline__edit"
+                        data-adjust-log-id="{{ entry.id }}"
+                        data-adjust-current="{{ entry.calories|round|int if entry.calories is not none else '' }}"
+                        aria-label="Adjust calorie estimate"
+                      >&#9998;</button>
+                    {% endif %}
+                    <button
+                      type="button"
+                      class="timeline__edit"
+                      data-open-photo-picker="{{ entry.id }}"
+                      data-entry-name="{{ entry.display_name }}"
+                      data-photos="{{ entry.photos_list | tojson | e }}"
+                      aria-label="Add or manage photos"
+                    >&#128247;</button>
+                    <button type="button" class="timeline__remove" data-delete-log-id="{{ entry.id }}" aria-label="Remove entry">&times;</button>
+                  </div>
                 </div>
-              </div>
-              <div class="timeline__right">
-                <span class="timeline__cals">{{ entry.calories|round|int if entry.calories is not none else '--' }} Cal</span>
-                {% if entry.is_photo_logged %}
-                  <button
-                    type="button"
-                    class="timeline__edit"
-                    data-adjust-log-id="{{ entry.id }}"
-                    data-adjust-current="{{ entry.calories|round|int if entry.calories is not none else '' }}"
-                    aria-label="Adjust calorie estimate"
-                  >&#9998;</button>
-                {% endif %}
-                <button
-                  type="button"
-                  class="timeline__edit"
-                  data-open-photo-picker="{{ entry.id }}"
-                  data-entry-name="{{ entry.display_name }}"
-                  data-photos="{{ entry.photos_list | tojson | e }}"
-                  aria-label="Add or manage photos"
-                >&#128247;</button>
-                <button type="button" class="timeline__remove" data-delete-log-id="{{ entry.id }}" aria-label="Remove entry">&times;</button>
-              </div>
-            </div>
-          </li>
-        {% endfor %}
-      </ol>
+              </li>
+            {% endfor %}
+          </ol>
+        </div>
+      {% endfor %}
     {% else %}
       <div class="empty-state">
-        Nothing logged yet today. Head to the Log tab to add something.
+        Nothing logged in the last 7 days. Head to the Log tab to add something.
       </div>
     {% endif %}
   </section>

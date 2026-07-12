@@ -958,6 +958,34 @@ the restructuring during testing, then confirmed the actual rendered
 order is correct (columns first, timeline after) and that delete/
 clear-day actions still work correctly inside the new layout.
 
+## Timezone default hardcoded, timeline now grouped by day with bold headers
+
+**Stopped relying on the cookie as the thing standing between this app
+and correct behavior.** The private-browsing screenshot was the key
+evidence: a fresh session, no old cache, no old cookies -- and the bug
+was still there. That rules out caching as the cause in that instance,
+and means cookie-based detection has now failed twice in two different
+ways. For a single-user personal app, defaulting to UTC every time
+detection fails is actively harmful (it's never correct for this
+user); defaulting to this specific user's actual, already-confirmed
+timezone (Pacific, per the location stamp) is a far smaller risk.
+Changed both `_user_timezone()` and `_job_tz()`'s fallback from UTC to
+`America/Los_Angeles`. The cookie still refines this when it happens to
+work; it's no longer load-bearing for correctness. Re-tested the exact
+worst case directly -- zero cookie support at all -- and confirmed the
+day-boundary bug is gone regardless.
+
+**Timeline now grouped by day with a bold header per day**, directly
+per request. Renamed to "Recent Timeline" (last 7 days) since it can
+now show more than just today, each day getting its own visually
+distinct heading and its own calorie total -- entries can no longer
+blend together across days the way they did before, and if a day-
+boundary issue ever happens again, it would show up immediately as an
+entry sitting under the wrong header instead of hiding silently.
+Confirmed the "Today" group's total matches the top-level "Cal Today"
+stat exactly, and confirmed entries actually land under the correct day
+header even with zero timezone cookie support.
+
 ## Running it locally
 
 ```bash

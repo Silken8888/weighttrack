@@ -478,14 +478,24 @@ def _extract_tool_input(data, tool_name):
 
 def _user_timezone():
     """Reads the browser-detected IANA timezone from a cookie (set by
-    JS on every page load -- see resolveTimezone() in main.js), falling
-    back to UTC if it's missing or invalid. This is the fix for a real,
-    systemic bug: every 'today' boundary in this app used to be
-    computed in UTC, meaning anything logged in the evening (in most US
-    timezones, several hours behind UTC) got stamped with *tomorrow's*
-    UTC date -- it would vanish from "today" and only reappear once the
-    UTC clock rolled over hours later, which looks exactly like
-    yesterday's data haunting today.
+    JS on every page load -- see resolveTimezone() in main.js). Falls
+    back to America/Los_Angeles, not UTC.
+
+    Confirmed live, twice now, that the cookie can fail to arrive even
+    when everything server-side is correct -- once from stale browser
+    caching (fixed separately), and once in a fresh private-browsing
+    session with no cache and no old cookies at all, which rules out
+    caching as the cause there. Something about cookie writes from
+    client-side JS just isn't reliable enough in every browsing context
+    to be the *only* thing standing between this app and correct day
+    boundaries. This is a single-user personal app, not a product
+    serving people in different timezones -- defaulting to this
+    specific user's actual, already-confirmed timezone (Central Coast,
+    California, per the location stamp) whenever detection fails is a
+    far smaller risk than defaulting to UTC, which is *never* correct
+    for this user and is exactly what caused the original bug. The
+    cookie still refines this when it works; it's no longer load-
+    bearing for correctness.
     """
     tz_name = request.cookies.get("wt_tz")
     if tz_name:
@@ -493,7 +503,7 @@ def _user_timezone():
             return ZoneInfo(tz_name)
         except Exception:  # noqa: BLE001 -- any bad/unknown tz string falls back safely
             pass
-    return ZoneInfo("UTC")
+    return ZoneInfo("America/Los_Angeles")
 
 
 def _local_today(tz=None):
@@ -905,7 +915,10 @@ def _job_tz(job):
     """Background job workers have no Flask request context, so they
     can't read the timezone cookie directly -- the route handler that
     enqueued the job captures it into job["tz"] first (see each route
-    below), and this turns that back into a ZoneInfo here.
+    below), and this turns that back into a ZoneInfo here. Same
+    America/Los_Angeles fallback as _user_timezone(), for the same
+    reason -- the cookie has proven unreliable enough that UTC is the
+    wrong thing to fall back to for this specific user.
     """
     tz_name = job.get("tz")
     if tz_name:
@@ -913,7 +926,7 @@ def _job_tz(job):
             return ZoneInfo(tz_name)
         except Exception:  # noqa: BLE001
             pass
-    return ZoneInfo("UTC")
+    return ZoneInfo("America/Los_Angeles")
 
 
 def _run_exercise_estimate(app, job):
@@ -2326,7 +2339,39 @@ def register_routes(app):
         entries = _todays_log_entries()
         consumed = round(sum(e.calories or 0 for e in entries)) if entries else 0
 
+        # Grouped by day (last 7 days), bold-headered per day -- directly
+        # requested after entries from different days visually ran
+        # together with no separation. Also means any future day-
+        # boundary misattribution would show up immediately under the
+        # wrong header instead of blending in silently, the way this
+        # bug did before it was caught.
         today = _local_today()
+        food_history_start, _ = _local_day_bounds_utc(today - timedelta(days=7))
+        recent_food = db.session.execute(
+            db.select(FoodLogEntry)
+            .filter(FoodLogEntry.logged_at >= food_history_start)
+            .order_by(FoodLogEntry.logged_at.desc())
+        ).scalars().all()
+
+        food_by_day = {}
+        food_day_order = []
+        for e in recent_food:
+            day = _to_local_date(e.logged_at)
+            if day not in food_by_day:
+                food_by_day[day] = []
+                food_day_order.append(day)
+            food_by_day[day].append(e)
+
+        timeline_history = [
+            {
+                "date": day,
+                "label": "Today" if day == today else day.strftime("%A, %b %-d"),
+                "entries": food_by_day[day],
+                "total": round(sum(e.calories or 0 for e in food_by_day[day])),
+            }
+            for day in food_day_order
+        ]
+
         start, end = _local_day_bounds_utc(today)
         exercise_today = db.session.execute(
             db.select(ExerciseEntry)
@@ -2377,6 +2422,7 @@ def register_routes(app):
             profile=profile,
             weigh_ins=list(reversed(weigh_ins)),
             log_entries=entries,
+            timeline_history=timeline_history,
             calories_today=round(consumed) if entries else None,
             latest_weight=latest_weight,
             pounds_lost=pounds_lost,
