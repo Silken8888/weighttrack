@@ -912,6 +912,31 @@
       .catch(function () { /* suggestions are a nice-to-have -- fail quietly */ });
   }
 
+  function maybePromptForPhotos(entries) {
+    // Only food entries have a photos field at all (exercise entries
+    // don't carry one) -- and only prompt for genuinely new items with
+    // zero photos, not ones that already got a match from photo memory.
+    const needsPhoto = (entries || []).filter(function (e) {
+      return e && Array.isArray(e.photos) && e.photos.length === 0 && !e.photo_url && e.product_name;
+    });
+
+    if (!needsPhoto.length || !photoPickerOpenFor) {
+      setTimeout(function () { window.location.reload(); }, 1400);
+      return;
+    }
+
+    const queue = needsPhoto.slice();
+    function openNext() {
+      const next = queue.shift();
+      if (!next) {
+        window.location.reload();
+        return;
+      }
+      photoPickerOpenFor(next.id, next.product_name, [], openNext);
+    }
+    openNext();
+  }
+
   function pollAgentMessage(jobId, statusEl, attempt) {
     const MAX_ATTEMPTS = 55;
 
@@ -935,7 +960,7 @@
         }
 
         setStatus(statusEl, "done", job.reply || "Logged.");
-        setTimeout(function () { window.location.reload(); }, 1400);
+        setTimeout(function () { maybePromptForPhotos(job.entries); }, 900);
       })
       .catch(function () {
         setStatus(statusEl, "error", "Lost track of that -- check your timeline.");
@@ -1199,6 +1224,12 @@
     });
   }
 
+  // Set by initPhotoPicker() once the modal exists on the current page
+  // (Dashboard and Log both have it) -- lets other code open the picker
+  // programmatically, e.g. auto-prompting for a photo right after
+  // logging something new that doesn't have one yet.
+  var photoPickerOpenFor = null;
+
   function initPhotoPicker() {
     const modal = document.getElementById("photo-picker-modal");
     const closeBtn = document.getElementById("photo-picker-close");
@@ -1211,6 +1242,7 @@
 
     let currentEntryId = null;
     let changed = false;
+    let onCloseCallback = null;
 
     function renderPhoto(photo) {
       const item = document.createElement("div");
@@ -1243,21 +1275,27 @@
       grid.appendChild(item);
     }
 
+    function openFor(entryId, entryName, photos, onClose) {
+      currentEntryId = entryId;
+      nameEl.textContent = entryName || "";
+      grid.innerHTML = "";
+      statusEl.textContent = "";
+      urlInput.value = "";
+      onCloseCallback = onClose || null;
+
+      (photos || []).forEach(renderPhoto);
+      modal.classList.add("is-open");
+      urlInput.focus();
+    }
+    photoPickerOpenFor = openFor;
+
     document.querySelectorAll("[data-open-photo-picker]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        currentEntryId = btn.dataset.openPhotoPicker;
-        nameEl.textContent = btn.dataset.entryName || "";
-        grid.innerHTML = "";
-        statusEl.textContent = "";
-        urlInput.value = "";
-
         let photos = [];
         try {
           photos = JSON.parse(btn.dataset.photos || "[]");
         } catch (e) { /* ignore malformed data, just show an empty grid */ }
-        photos.forEach(renderPhoto);
-
-        modal.classList.add("is-open");
+        openFor(btn.dataset.openPhotoPicker, btn.dataset.entryName, photos, null);
       });
     });
 
@@ -1297,6 +1335,15 @@
 
     function close() {
       modal.classList.remove("is-open");
+      const cb = onCloseCallback;
+      onCloseCallback = null;
+      if (cb) {
+        // A queued caller (e.g. the auto-prompt flow) handles its own
+        // navigation/reload -- don't also do the default reload here.
+        changed = false;
+        cb();
+        return;
+      }
       if (changed) {
         window.location.reload();
       }

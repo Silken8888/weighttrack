@@ -1043,6 +1043,38 @@ calorie value untouched, a combined edit changing all three at once,
 and a malformed date rejected cleanly with a real error instead of a
 crash.
 
+## Assistant no longer lies about photo support, plus auto-prompt for new items
+
+**Real bug, not a missing feature.** The assistant told the user photos
+"aren't stored on log entries" when asked to remove one -- flatly
+false, the photo-attachment feature has existed for hours. It said
+this because it genuinely had zero visibility into `FoodLogPhoto`
+records, so it confabulated an explanation instead of admitting it
+didn't know. Fixed by adding photo IDs to each entry in the shared
+context, extending the tool schema with a real `photo_deletions`
+action, and being explicit in the system prompt that photos ARE
+supported -- while also being honest that the assistant can't actually
+see what a photo looks like from just a URL, so it should ask which
+position rather than guess when someone describes one by appearance
+and there's more than one on an entry. Caught a second bug while
+testing this: the new `deleted_photos` field was making it into the
+job result but never into the actual API response the frontend reads
+-- same "added a field, forgot to wire it into the response builder"
+mistake as an earlier fix tonight. Confirmed end-to-end after both
+fixes: the assistant sees photo counts/ids correctly, and can actually
+remove a specific one when asked.
+
+**New: logging something with no photo yet now offers to add one
+immediately**, per direct request. After a successful log via the
+inline assistant, any brand-new item with no photo (not from photo
+memory, not a meal photo upload) opens the photo picker right there,
+one item at a time if several need one, before finally reloading.
+Confirmed the two related pitfalls don't happen: an item that already
+got a photo from memory doesn't get prompted again, and a meal-photo-
+logged entry (which has a photo through a different field entirely,
+not the manually-attached-photos list) doesn't get wrongly flagged as
+needing one either.
+
 ## Running it locally
 
 ```bash

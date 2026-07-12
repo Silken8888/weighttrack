@@ -573,6 +573,11 @@ def _gather_app_context(app, tz=None):
             f'id={e.id}: "{e.display_name}", {e.meal_type}, logged '
             f'{e.logged_at.strftime("%Y-%m-%d %H:%M")}, '
             f'{round(e.calories) if e.calories is not None else "?"} cal'
+            + (
+                f', {len(e.photos)} photo(s) attached (photo ids: '
+                f'{", ".join(str(p.id) for p in e.photos)})'
+                if e.photos else ""
+            )
             for e in recent_food
         ) or "(nothing logged yet)"
 
@@ -1165,9 +1170,17 @@ def _run_food_agent(app, job):
         "the logged time/date is fully supported for BOTH food and "
         "exercise entries, don't say you can't do it or that you don't "
         "see an entry without checking the exercise list below first, "
-        "(4) delete an entry (food or exercise) they ask to remove, or "
-        f"(5) just answer a question -- not everything is a logging "
-        f"action.\n\n{meal_instruction}\n\n"
+        "(4) delete an entry (food or exercise) they ask to remove, "
+        "(5) remove a specific photo attached to a food entry -- "
+        "photos ARE supported (each entry below shows its attached "
+        "photo ids if it has any) -- don't say photos aren't stored, "
+        "that's wrong. You can't actually see what a photo looks like "
+        "from just its id/url though, so if they describe one by "
+        "appearance (e.g. \"the black one\") and there's more than one "
+        "photo on that entry, ask which position it is rather than "
+        "guessing -- but if there's only one photo on the entry they "
+        "mean, just remove it, or (6) just answer a question -- not "
+        f"everything is a logging action.\n\n{meal_instruction}\n\n"
         f"The user's profile and current stats -- if they ask about their "
         f"calorie target, use the already-calculated number below rather "
         f"than re-deriving your own estimate (it needs to match what the "
@@ -1301,12 +1314,17 @@ def _run_food_agent(app, job):
                         "required": ["entity", "id"],
                     },
                 },
+                "photo_deletions": {
+                    "type": "array",
+                    "description": "Specific attached photos to remove from a food entry, referenced by their photo id (shown in the recent entries list when an entry has photos).",
+                    "items": {"type": "integer"},
+                },
                 "reply": {
                     "type": "string",
                     "description": "Short natural response -- confirm what you did and the total calories, or the answer if it wasn't a logging action.",
                 },
             },
-            "required": ["items", "exercise_items", "adjustments", "deletions", "reply"],
+            "required": ["items", "exercise_items", "adjustments", "deletions", "photo_deletions", "reply"],
         },
     }
 
@@ -1331,6 +1349,7 @@ def _run_food_agent(app, job):
     exercise_items = parsed.get("exercise_items") or []
     adjustments = parsed.get("adjustments") or []
     deletions = parsed.get("deletions") or []
+    photo_deletions = parsed.get("photo_deletions") or []
     reply = (parsed.get("reply") or "").strip() or "Done."
     batch_id = uuid.uuid4().hex if items else None
     weight_kg = latest_weight * 0.453592 if latest_weight else None
@@ -1513,11 +1532,27 @@ def _run_food_agent(app, job):
             except (TypeError, ValueError):
                 continue
 
+        deleted_photo_ids = []
+        for photo_id in photo_deletions:
+            try:
+                photo = db.session.get(FoodLogPhoto, int(photo_id))
+                if photo is not None:
+                    deleted_photo_ids.append(photo.id)
+                    db.session.delete(photo)
+            except (TypeError, ValueError):
+                continue
+
         db.session.commit()
         entries = [e.to_dict() for e in created] + [e.to_dict() for e in created_exercise]
         adjusted_dicts = [e.to_dict() for e in adjusted]
 
-    return {"reply": reply, "entries": entries, "adjusted": adjusted_dicts, "deleted": deleted_ids}, None
+    return {
+        "reply": reply,
+        "entries": entries,
+        "adjusted": adjusted_dicts,
+        "deleted": deleted_ids,
+        "deleted_photos": deleted_photo_ids,
+    }, None
 
 
 def _search_worker(app):
@@ -2162,6 +2197,8 @@ def register_routes(app):
                 response["adjusted"] = job["adjusted"]
             if "deleted" in job:
                 response["deleted"] = job["deleted"]
+            if "deleted_photos" in job:
+                response["deleted_photos"] = job["deleted_photos"]
             if "reply" in job:
                 response["reply"] = job["reply"]
             response["note"] = job.get("note")

@@ -105,4 +105,20 @@
     <p class="search-status" id="profile-status">Height, age, sex, and activity level drive your calorie target and BMI on the Dashboard.</p>
   </section>
 
+  <div class="modal-backdrop" id="photo-picker-modal">
+    <div class="nutrition-label photo-picker">
+      <button type="button" class="nutrition-label__close" id="photo-picker-close" aria-label="Close">&times;</button>
+      <h3>Add A Photo</h3>
+      <p class="nutrition-label__product" id="photo-picker-entry-name">&mdash;</p>
+
+      <form id="photo-picker-form" class="photo-picker-form">
+        <input type="url" id="photo-picker-url" placeholder="Paste an image URL" required>
+        <button type="submit" class="btn">Add</button>
+      </form>
+      <p class="search-status" id="photo-picker-status"></p>
+
+      <div class="photo-picker-grid" id="photo-picker-grid"></div>
+    </div>
+  </div>
+
 {% endblock %}
