@@ -54,6 +54,11 @@ class Config:
     # Haiku is plenty for a rough single-number calorie guess -- no need
     # to pay for a bigger model on this call.
     ANTHROPIC_MEAL_MODEL = "claude-haiku-4-5-20251001"
+    # The natural-language food-logging agent needs to parse a whole
+    # sentence into multiple distinct items with individual macro
+    # estimates -- more reasoning-heavy than the single-photo calorie
+    # guess above, so it gets the stronger model.
+    ANTHROPIC_AGENT_MODEL = "claude-sonnet-5"
 
     # Background search jobs -- see app.py. Finished jobs are pruned from
     # the in-memory store after this many seconds.

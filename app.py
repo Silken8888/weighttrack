@@ -381,25 +381,64 @@ def _resize_for_ai(image_bytes, max_edge=1024):
     return buf.getvalue()
 
 
+def _call_claude(app, payload, timeout_multiplier=2):
+    """Shared POST to the Anthropic Messages API with the same
+    one-retry-on-5xx pattern used everywhere else in this file. Returns
+    (data, error) -- data is the parsed JSON response body on success.
+    """
+    if not app.config["ANTHROPIC_API_KEY"]:
+        return None, "This needs ANTHROPIC_API_KEY set -- not configured yet."
+
+    headers = {
+        "x-api-key": app.config["ANTHROPIC_API_KEY"],
+        "anthropic-version": app.config["ANTHROPIC_VERSION"],
+        "content-type": "application/json",
+    }
+
+    attempts = app.config["OFF_RETRY_COUNT"] + 1
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            resp = requests.post(
+                app.config["ANTHROPIC_API_URL"],
+                headers=headers,
+                json=payload,
+                timeout=app.config["OFF_REQUEST_TIMEOUT_SECONDS"] * timeout_multiplier,
+            )
+            if resp.status_code in (502, 503, 529):
+                last_error = f"Anthropic API returned {resp.status_code}"
+                time.sleep(app.config["OFF_RETRY_DELAY_SECONDS"])
+                continue
+            resp.raise_for_status()
+            return resp.json(), None
+        except requests.RequestException as exc:
+            last_error = str(exc)
+            time.sleep(app.config["OFF_RETRY_DELAY_SECONDS"])
+            continue
+
+    return None, last_error or "Couldn't reach the Anthropic API"
+
+
+def _extract_claude_text(data):
+    return "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+
+
+def _parse_json_from_claude(raw_text):
+    cleaned = re.sub(r"^```(json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
+    return json.loads(cleaned)
+
+
 def _estimate_meal_calories(app, image_bytes):
     """Ask Claude for a rough calorie estimate + short description of a
     meal photo. Returns (calories, description, error) -- calories/
     description are None on failure, error is None on success.
     """
-    if not app.config["ANTHROPIC_API_KEY"]:
-        return None, None, "AI calorie estimate isn't set up yet (missing ANTHROPIC_API_KEY)."
-
     try:
         resized = _resize_for_ai(image_bytes)
     except UnidentifiedImageError:
         return None, None, "That doesn't look like a readable image."
 
     b64 = base64.standard_b64encode(resized).decode("utf-8")
-    headers = {
-        "x-api-key": app.config["ANTHROPIC_API_KEY"],
-        "anthropic-version": app.config["ANTHROPIC_VERSION"],
-        "content-type": "application/json",
-    }
     payload = {
         "model": app.config["ANTHROPIC_MEAL_MODEL"],
         "max_tokens": 300,
@@ -419,44 +458,20 @@ def _estimate_meal_calories(app, image_bytes):
         }],
     }
 
-    attempts = app.config["OFF_RETRY_COUNT"] + 1
-    last_error = None
-    data = None
-    for attempt in range(attempts):
-        try:
-            resp = requests.post(
-                app.config["ANTHROPIC_API_URL"],
-                headers=headers,
-                json=payload,
-                timeout=app.config["OFF_REQUEST_TIMEOUT_SECONDS"] * 2,
-            )
-            if resp.status_code in (502, 503, 529):
-                last_error = f"Anthropic API returned {resp.status_code}"
-                time.sleep(app.config["OFF_RETRY_DELAY_SECONDS"])
-                continue
-            resp.raise_for_status()
-            data = resp.json()
-            break
-        except requests.RequestException as exc:
-            last_error = str(exc)
-            time.sleep(app.config["OFF_RETRY_DELAY_SECONDS"])
-            continue
-
+    data, error = _call_claude(app, payload)
     if data is None:
-        return None, None, last_error or "Couldn't reach the AI calorie estimator"
+        return None, None, error
 
-    raw_text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
-    cleaned = re.sub(r"^```(json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
-
+    raw_text = _extract_claude_text(data)
     try:
-        parsed = json.loads(cleaned)
+        parsed = _parse_json_from_claude(raw_text)
         calories = int(parsed["calories"]) if parsed.get("calories") is not None else None
         description = (parsed.get("description") or "").strip()[:200] or None
         return calories, description, None
     except (ValueError, TypeError, KeyError, json.JSONDecodeError):
         # Last-resort fallback: pull the first number out of whatever came
         # back rather than losing the estimate entirely over a formatting slip.
-        match = re.search(r"\d+", cleaned)
+        match = re.search(r"\d+", raw_text)
         if match:
             return int(match.group()), None, None
         return None, None, "Got a response from the AI but couldn't read a calorie number from it."
@@ -637,6 +652,124 @@ def _run_meal_photo_job(app, job):
     return {"entry": result, "note": ai_error}, None
 
 
+def _run_food_agent(app, job):
+    """Parse a free-text message like "two pieces of wheat toast with
+    jif chunky peanut butter and 28 oz of coffee with 3 tbsp of
+    starbucks non-dairy creamer" into distinct food items, each with its
+    own estimated nutrition, and log each one directly -- no search, no
+    confirmation step, matching how photo logging already works.
+
+    meal_type comes from the dropdown the user picks before typing, not
+    from Claude's guess -- removes a whole category of ambiguity ("was
+    that lunch or a snack?") since the user already said which.
+    """
+    message = job["message"]
+    meal_type = job["meal_type"]
+    today = datetime.utcnow().date().isoformat()
+    now_time = datetime.utcnow().strftime("%H:%M")
+
+    payload = {
+        "model": app.config["ANTHROPIC_AGENT_MODEL"],
+        "max_tokens": 1500,
+        "messages": [{
+            "role": "user",
+            "content": (
+                f"Today's date is {today} (current time {now_time} UTC). "
+                "You are a food logging assistant for a personal nutrition "
+                f"tracker. The user has already told the app this is for "
+                f"\"{meal_type}\" -- don't guess a different meal type, use "
+                f"\"{meal_type}\" for every item. They'll describe what they "
+                "ate, sometimes casually, sometimes for a past date. Break "
+                "their message into distinct food/drink items (e.g. \"two "
+                "pieces of wheat toast with jif chunky peanut butter\" is "
+                "separate items for the toast and the peanut butter, since "
+                "they have very different nutrition profiles). For each "
+                "item, give your single best rough estimate of calories, "
+                "protein (g), carbs (g), and fat (g) for the stated "
+                "quantity -- these are estimates for personal tracking, not "
+                "medical or nutritional advice. Infer the date from what "
+                "they say (\"today\", \"yesterday\", a specific date, or "
+                "unstated -> today), as an ISO date (YYYY-MM-DD). If the "
+                "message isn't describing food at all (e.g. a question), "
+                "return an empty items list and answer in the reply field "
+                "instead.\n\n"
+                f'User message: "{message}"\n\n'
+                "Respond with ONLY a JSON object, no markdown fences, no "
+                "other text:\n"
+                '{"items": [{"name": "<short name>", "quantity": "<what '
+                'they said, e.g. \'2 slices\'>", "date": "YYYY-MM-DD", '
+                '"calories": <integer>, "protein_g": <number>, "carbs_g": '
+                '<number>, "fat_g": <number>}, ...], "reply": "<a short, '
+                "natural, friendly confirmation of what you logged and the "
+                'total calories -- or your answer, if it wasn\'t a food '
+                'message>"}'
+            ),
+        }],
+    }
+
+    data, error = _call_claude(app, payload, timeout_multiplier=3)
+    if data is None:
+        return None, error
+
+    raw_text = _extract_claude_text(data)
+    try:
+        parsed = _parse_json_from_claude(raw_text)
+    except json.JSONDecodeError:
+        return None, "Got a response from the AI but couldn't parse it. Try rephrasing."
+
+    items = parsed.get("items") or []
+    reply = (parsed.get("reply") or "").strip() or "Logged."
+    batch_id = uuid.uuid4().hex
+
+    created = []
+    with app.app_context():
+        for item in items:
+            try:
+                try:
+                    item_date = datetime.fromisoformat(item.get("date", today)).date()
+                except (ValueError, TypeError):
+                    item_date = datetime.utcnow().date()
+
+                logged_at = (
+                    datetime.utcnow()
+                    if item_date == datetime.utcnow().date()
+                    else datetime.combine(item_date, datetime.min.time().replace(hour=12))
+                )
+
+                name = (item.get("name") or "Food item").strip()[:200]
+                quantity = (item.get("quantity") or "").strip()
+                description = f"{name} ({quantity})" if quantity else name
+
+                def _num(key):
+                    val = item.get(key)
+                    try:
+                        return float(val) if val is not None else None
+                    except (TypeError, ValueError):
+                        return None
+
+                entry = FoodLogEntry(
+                    food_item_id=None,
+                    description=description[:200],
+                    meal_type=meal_type,
+                    servings=1.0,
+                    logged_at=logged_at,
+                    ai_calories=_num("calories"),
+                    ai_protein_g=_num("protein_g"),
+                    ai_carbs_g=_num("carbs_g"),
+                    ai_fat_g=_num("fat_g"),
+                    batch_id=batch_id,
+                )
+                db.session.add(entry)
+                created.append(entry)
+            except Exception:  # noqa: BLE001 -- one malformed item shouldn't drop the rest
+                continue
+
+        db.session.commit()
+        entries = [e.to_dict() for e in created]
+
+    return {"reply": reply, "entries": entries}, None
+
+
 def _search_worker(app):
     while True:
         try:
@@ -657,6 +790,8 @@ def _search_worker(app):
                 outcome, error = _run_photo_job(app, job)
             elif job["kind"] == "meal_photo":
                 outcome, error = _run_meal_photo_job(app, job)
+            elif job["kind"] == "agent_message":
+                outcome, error = _run_food_agent(app, job)
             else:
                 outcome, error = _run_text_job(app, job)
 
@@ -891,6 +1026,118 @@ def register_routes(app):
         db.session.commit()
         return jsonify(success=True)
 
+    @app.route("/agent/message", methods=["POST"])
+    def agent_message():
+        """Natural-language food logging: pick a meal type from the
+        dropdown, describe what you ate in plain language, and it
+        becomes several distinct FoodLogEntry rows directly -- no
+        search, no confirmation step. Same background-job pattern as
+        everything else that calls an external API.
+        """
+        payload = request.get_json(silent=True) or {}
+        message = (payload.get("message") or "").strip()
+        if not message:
+            return jsonify(error="Say something first"), 400
+        if len(message) > 2000:
+            return jsonify(error="That's a lot -- try breaking it into a shorter message"), 400
+
+        meal_type = (payload.get("meal_type") or "").strip().lower()
+        if meal_type not in MEAL_TYPES:
+            return jsonify(error="Pick a meal type first"), 400
+
+        job_id = uuid.uuid4().hex
+        with _jobs_lock:
+            _jobs[job_id] = {
+                "kind": "agent_message",
+                "status": "pending",
+                "message": message,
+                "meal_type": meal_type,
+                "created_at": datetime.utcnow(),
+                "results": None,
+                "error": None,
+            }
+        _search_queue.put(job_id)
+
+        return jsonify(job_id=job_id), 202
+
+    @app.route("/agent/recent-meals")
+    def agent_recent_meals():
+        """'Claude will learn and proactively offer up the meals in the
+        past' -- no ML needed for this part, just the app's own history:
+        the most recent distinct agent-logged batches for a meal type,
+        so repeating yesterday's breakfast is one tap instead of typing
+        it all out again.
+        """
+        meal_type = (request.args.get("meal_type") or "").strip().lower()
+        if meal_type not in MEAL_TYPES:
+            return jsonify(error="Invalid meal type"), 400
+
+        recent_entries = db.session.execute(
+            db.select(FoodLogEntry)
+            .filter(FoodLogEntry.meal_type == meal_type, FoodLogEntry.batch_id.isnot(None))
+            .order_by(FoodLogEntry.logged_at.desc())
+            .limit(60)  # a handful of batches' worth, grouped below
+        ).scalars().all()
+
+        batches = {}
+        order = []
+        for e in recent_entries:
+            if e.batch_id not in batches:
+                batches[e.batch_id] = []
+                order.append(e.batch_id)
+            batches[e.batch_id].append(e)
+
+        suggestions = []
+        for batch_id in order[:5]:
+            items = batches[batch_id]
+            total_cal = sum(i.calories or 0 for i in items)
+            suggestions.append({
+                "batch_id": batch_id,
+                "summary": ", ".join(i.display_name for i in items),
+                "total_calories": round(total_cal),
+                "item_count": len(items),
+                "logged_at": items[0].logged_at.isoformat(),
+            })
+
+        return jsonify(suggestions=suggestions)
+
+    @app.route("/agent/repeat", methods=["POST"])
+    def agent_repeat():
+        """Clone a past batch's items as new entries logged right now --
+        no AI call needed, just duplicating known-good data.
+        """
+        payload = request.get_json(silent=True) or {}
+        batch_id = (payload.get("batch_id") or "").strip()
+        if not batch_id:
+            return jsonify(error="Missing batch_id"), 400
+
+        source_items = db.session.execute(
+            db.select(FoodLogEntry).filter(FoodLogEntry.batch_id == batch_id)
+        ).scalars().all()
+        if not source_items:
+            return jsonify(error="Couldn't find that meal to repeat"), 404
+
+        new_batch_id = uuid.uuid4().hex
+        created = []
+        for src in source_items:
+            entry = FoodLogEntry(
+                food_item_id=None,
+                description=src.description,
+                meal_type=src.meal_type,
+                servings=1.0,
+                logged_at=datetime.utcnow(),
+                ai_calories=src.ai_calories,
+                ai_protein_g=src.ai_protein_g,
+                ai_carbs_g=src.ai_carbs_g,
+                ai_fat_g=src.ai_fat_g,
+                batch_id=new_batch_id,
+            )
+            db.session.add(entry)
+            created.append(entry)
+        db.session.commit()
+
+        return jsonify(entries=[e.to_dict() for e in created]), 201
+
     @app.route("/log/photo", methods=["POST"])
     def log_photo_start():
         """Snap a photo of a meal -- unlike /food/search-photo, this
@@ -1033,6 +1280,10 @@ def register_routes(app):
                 response["match_type"] = job.get("match_type")
             if "entry" in job:
                 response["entry"] = job["entry"]
+            if "entries" in job:
+                response["entries"] = job["entries"]
+            if "reply" in job:
+                response["reply"] = job["reply"]
             response["note"] = job.get("note")
         elif job["status"] == "error":
             response["error"] = job["error"]
@@ -1125,7 +1376,25 @@ def register_routes(app):
 
         notes = (payload.get("notes") or "").strip() or None
 
-        entry = WeighIn(weight_lbs=weight_lbs, notes=notes)
+        # Optional backdating -- if a date is given and it's not today,
+        # use noon on that date (we only have a date, not a time, from
+        # the form). Milestones and the "first entry" reference already
+        # work off whichever logged_at is earliest, sorted at query time
+        # -- not insertion order -- so backdating an earlier entry
+        # automatically recalibrates "day one" without any extra logic.
+        raw_date = (payload.get("date") or "").strip()
+        logged_at = datetime.utcnow()
+        if raw_date:
+            try:
+                entry_date = datetime.fromisoformat(raw_date).date()
+                if entry_date != datetime.utcnow().date():
+                    logged_at = datetime.combine(entry_date, datetime.min.time().replace(hour=12))
+                if entry_date > datetime.utcnow().date():
+                    return jsonify(error="Can't log a weigh-in in the future"), 400
+            except ValueError:
+                return jsonify(error="That date doesn't look right"), 400
+
+        entry = WeighIn(weight_lbs=weight_lbs, notes=notes, logged_at=logged_at)
         db.session.add(entry)
         db.session.commit()
         return jsonify(entry.to_dict()), 201

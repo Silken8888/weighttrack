@@ -651,8 +651,9 @@
         evt.preventDefault();
         const statusEl = document.getElementById("weigh-in-status");
         const weight = document.getElementById("weigh-in-weight").value;
+        const date = document.getElementById("weigh-in-date").value;
         const notes = document.getElementById("weigh-in-notes").value.trim();
-        postJSON("/weigh-in/add", { weight_lbs: weight, notes: notes }, statusEl);
+        postJSON("/weigh-in/add", { weight_lbs: weight, date: date, notes: notes }, statusEl);
       });
     }
     document.querySelectorAll("[data-delete-weigh-in-id]").forEach(function (btn) {
@@ -716,6 +717,132 @@
     });
   }
 
+  /* ----------------------------------------------------------------
+     AI food-logging agent: pick a meal type, describe what you had in
+     plain language, Claude estimates nutrition and logs each distinct
+     item directly. Also shows "recently logged for this meal" chips so
+     repeating yesterday's breakfast is one tap, not retyping it.
+     ---------------------------------------------------------------- */
+
+  function loadAgentSuggestions() {
+    const mealType = document.getElementById("agent-meal-type");
+    const container = document.getElementById("agent-suggestions");
+    if (!mealType || !container) return;
+
+    fetch("/agent/recent-meals?meal_type=" + encodeURIComponent(mealType.value))
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        container.innerHTML = "";
+        (data.suggestions || []).forEach(function (s) {
+          const chip = document.createElement("div");
+          chip.className = "suggestion-chip";
+
+          const text = document.createElement("span");
+          text.className = "suggestion-chip__text";
+          text.textContent = s.summary;
+          chip.appendChild(text);
+
+          const cals = document.createElement("span");
+          cals.className = "suggestion-chip__cals";
+          cals.textContent = s.total_calories + " cal";
+          chip.appendChild(cals);
+
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = "Log Again";
+          btn.addEventListener("click", function () {
+            btn.disabled = true;
+            btn.textContent = "Logging\u2026";
+            fetch("/agent/repeat", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ batch_id: s.batch_id }),
+            })
+              .then(function (res) {
+                if (!res.ok) throw new Error("repeat failed");
+                window.location.reload();
+              })
+              .catch(function () {
+                btn.disabled = false;
+                btn.textContent = "Log Again";
+                window.alert("Couldn't repeat that -- try again.");
+              });
+          });
+          chip.appendChild(btn);
+
+          container.appendChild(chip);
+        });
+      })
+      .catch(function () { /* suggestions are a nice-to-have -- fail quietly */ });
+  }
+
+  function pollAgentMessage(jobId, statusEl, defaultText, attempt) {
+    const MAX_ATTEMPTS = 55;
+
+    fetch("/food/search/status/" + jobId)
+      .then(function (res) { return res.json(); })
+      .then(function (job) {
+        if (job.status === "pending") {
+          if (attempt >= MAX_ATTEMPTS) {
+            setStatus(statusEl, "error", "This is taking longer than expected -- check your timeline shortly.");
+            return;
+          }
+          setTimeout(function () {
+            pollAgentMessage(jobId, statusEl, defaultText, attempt + 1);
+          }, 700);
+          return;
+        }
+
+        if (job.status === "error") {
+          setStatus(statusEl, "error", job.error || "Couldn't log that.");
+          return;
+        }
+
+        setStatus(statusEl, "done", job.reply || "Logged.");
+        setTimeout(function () { window.location.reload(); }, 1400);
+      })
+      .catch(function () {
+        setStatus(statusEl, "error", "Lost track of that -- check your timeline.");
+      });
+  }
+
+  function initAgentForm() {
+    const form = document.getElementById("agent-form");
+    const mealType = document.getElementById("agent-meal-type");
+    const statusEl = document.getElementById("agent-status");
+    if (!form || !mealType || !statusEl) return;
+
+    const defaultText = statusEl.textContent;
+
+    mealType.addEventListener("change", loadAgentSuggestions);
+    loadAgentSuggestions();
+
+    form.addEventListener("submit", function (evt) {
+      evt.preventDefault();
+      const input = document.getElementById("agent-message");
+      const message = input.value.trim();
+      if (!message) return;
+
+      setStatus(statusEl, "pending", "Thinking\u2026");
+
+      fetch("/agent/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: message, meal_type: mealType.value }),
+      })
+        .then(function (res) {
+          if (!res.ok) return res.json().then(function (b) { throw new Error(b.error || "Couldn't log that."); });
+          return res.json();
+        })
+        .then(function (data) {
+          pollAgentMessage(data.job_id, statusEl, defaultText, 0);
+        })
+        .catch(function (err) {
+          setStatus(statusEl, "error", err.message);
+        });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     startClock();
     resolveLocation();
@@ -730,5 +857,6 @@
     initWeighInPage();
     initVacationPage();
     initDashboardPage();
+    initAgentForm();
   });
 })();

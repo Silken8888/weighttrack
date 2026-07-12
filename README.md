@@ -403,6 +403,53 @@ decoding, and a full photo search against a real barcode file, both
 work correctly even when `find_library` is broken exactly like
 DigitalOcean's environment.
 
+## AI food-logging agent, backdated weigh-ins, pantry/scanning removed
+
+Three related changes:
+
+**Backdated weigh-ins**: the weigh-in form now has an optional date field.
+Leave it blank for today, or pick an earlier date to backfill a past
+entry. No special "recalibrate" logic was needed -- milestones, streaks,
+and the "first entry" reference already sort by `logged_at` at query
+time rather than insertion order, so backfilling an earlier date
+automatically becomes the new day one. Tested directly: backdated an
+entry 10 days earlier than the existing one and confirmed it's treated
+as the earliest without any extra code.
+
+**Pantry ("On the Shelf") and barcode/text scanning removed** from the
+Food Library page entirely, per direct request -- not hidden, removed
+from the template. `/food/search`, `/food/search-photo`, and the
+underlying barcode-decode machinery are all still there in `app.py` (no
+reason to delete working, tested code), just no longer linked to from
+the UI.
+
+**New: AI food-logging agent.** Pick a meal type from a dropdown, type
+what you had in plain language (e.g. "two eggs, wheat toast with peanut
+butter, black coffee"), and Claude (`claude-sonnet-5` -- stronger
+reasoning than the Haiku model used for the quick photo-calorie guess,
+since this has to split one sentence into several distinct items with
+individual macro estimates) breaks it into separate FoodLogEntry rows,
+each with its own calorie/protein/carb/fat estimate, logged directly --
+no search, no confirmation step. Meal type comes from the dropdown, not
+from Claude's guess, which removes a whole category of ambiguity.
+
+Tested end-to-end with the exact example from the request -- "two
+pieces of wheat toast with jif chunky peanut butter and 28 oz of coffee
+with 3 tbsp of starbucks non-dairy creamer" -- confirmed it correctly
+splits into 4 distinct entries (toast, peanut butter, coffee, creamer),
+each with its own macros, all tagged to the selected meal type, showing
+up correctly on the timeline with a real total.
+
+**"Claude will learn and proactively offer up the meals in the past"**:
+implemented as the app's own history rather than a separate ML system --
+entries logged together in one agent submission share a `batch_id`.
+`GET /agent/recent-meals?meal_type=X` returns the most recent distinct
+batches for that meal type, shown as "log again" chips above the input.
+Tapping one clones the batch's items as new entries logged right now --
+no AI call needed for a repeat, just copying known-good data. Tested
+directly: logged a meal, confirmed it appeared as a suggestion for that
+meal type, and confirmed "Log Again" created a fresh set of entries.
+
 ## Running it locally
 
 ```bash

@@ -12,10 +12,11 @@
     <p class="search-panel__eyebrow">Log Today's Weight</p>
     <form id="weigh-in-form" class="weigh-in-form">
       <input type="number" id="weigh-in-weight" step="0.1" min="1" max="1000" placeholder="Weight (lbs)" required>
+      <input type="date" id="weigh-in-date" title="Defaults to today -- pick an earlier date to backfill a past entry">
       <input type="text" id="weigh-in-notes" placeholder="Optional: sleep, stress, alcohol, anything worth noting">
       <button type="submit" class="btn">Log It</button>
     </form>
-    <p class="search-status" id="weigh-in-status"></p>
+    <p class="search-status" id="weigh-in-status">Leave the date blank for today, or pick an earlier one to backfill a past entry -- your streak and "first entry" recalculate automatically.</p>
   </section>
 
   <section class="stats-row">

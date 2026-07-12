@@ -91,7 +91,16 @@ class FoodLogEntry(db.Model):
     photo_url = db.Column(db.String(500))
     description = db.Column(db.String(200))
     ai_calories = db.Column(db.Float)
+    ai_protein_g = db.Column(db.Float)
+    ai_carbs_g = db.Column(db.Float)
+    ai_fat_g = db.Column(db.Float)
     manual_calories = db.Column(db.Float)
+
+    # Groups entries logged together in one agent submission (e.g. "toast
+    # + peanut butter + coffee + creamer" all become separate rows, but
+    # share a batch_id), so "repeat this meal" can clone the whole group
+    # at once instead of one item at a time.
+    batch_id = db.Column(db.String(32), index=True)
 
     def scaled(self, field):
         base = getattr(self.food_item, field, None)
@@ -109,15 +118,21 @@ class FoodLogEntry(db.Model):
 
     @property
     def protein_g(self):
-        return self.scaled("protein_g")
+        if self.food_item_id and self.food_item is not None:
+            return self.scaled("protein_g")
+        return self.ai_protein_g
 
     @property
     def carbs_g(self):
-        return self.scaled("carbs_g")
+        if self.food_item_id and self.food_item is not None:
+            return self.scaled("carbs_g")
+        return self.ai_carbs_g
 
     @property
     def fat_g(self):
-        return self.scaled("fat_g")
+        if self.food_item_id and self.food_item is not None:
+            return self.scaled("fat_g")
+        return self.ai_fat_g
 
     @property
     def display_name(self):
@@ -155,6 +170,7 @@ class FoodLogEntry(db.Model):
             "carbs_g": self.carbs_g,
             "fat_g": self.fat_g,
             "source": "photo" if self.is_photo_logged else "library",
+            "batch_id": self.batch_id,
         }
 
 

@@ -29,32 +29,29 @@
   </section>
 
   <section class="hero">
-    <h1>Your Food Library</h1>
-    <p>Look a product up once, confirm the numbers, and it's yours forever after &mdash; no repeat lookups, no re-typing macros. Search below to add something new.</p>
+    <h1>Log Your Food</h1>
+    <p>Pick a meal, say what you had in plain language, and Claude figures out the nutrition and logs it -- no searching, no scanning.</p>
   </section>
 
   <section class="search-panel">
-    <p class="search-panel__eyebrow">Search Open Food Facts</p>
-    <form id="search-form" class="search-form">
-      <input type="text" id="search-input" name="query" placeholder="e.g. cheerios, nutella, greek yogurt&hellip;" autocomplete="off">
-      <button type="submit" class="btn">Search</button>
+    <p class="search-panel__eyebrow">Tell The Assistant</p>
+    <form id="agent-form" class="agent-form">
+      <select id="agent-meal-type">
+        <option value="breakfast">Breakfast</option>
+        <option value="lunch">Lunch</option>
+        <option value="dinner">Dinner</option>
+        <option value="snack" selected>Snack</option>
+      </select>
+      <input type="text" id="agent-message" placeholder="e.g. two eggs, wheat toast with peanut butter, black coffee" autocomplete="off">
+      <button type="submit" class="btn">Log It</button>
     </form>
+    <p class="search-status" id="agent-status">Estimates are from Claude, for personal tracking -- not medical or nutritional advice.</p>
 
-    <div class="search-photo">
-      <span class="search-photo__divider">Or</span>
-      <label class="btn btn--ghost search-photo__label" for="search-photo-input">
-        Upload a Photo Instead
-      </label>
-      <input type="file" id="search-photo-input" accept="image/jpeg,image/png,image/webp" hidden>
-      <span class="search-photo__hint">Needs a clear, legible shot of the barcode -- doesn't read labels.</span>
-    </div>
-
-    <p class="search-status" id="search-status"></p>
-    <ul class="result-list" id="search-results"></ul>
+    <div class="agent-suggestions" id="agent-suggestions"></div>
   </section>
 
   <section class="meal-photo-panel">
-    <p class="search-panel__eyebrow">Log a Meal Photo</p>
+    <p class="search-panel__eyebrow">Or Log A Photo</p>
     <form id="meal-photo-form" class="meal-photo-form">
       <input type="file" id="meal-photo-input" accept="image/jpeg,image/png,image/webp" required>
       <select id="meal-photo-meal-type">
@@ -67,7 +64,7 @@
       <input type="text" id="meal-photo-description" placeholder="Optional: what is this?">
       <button type="submit" class="btn">Log It</button>
     </form>
-    <p class="search-status" id="meal-photo-status">For home-cooked or unpackaged food -- Claude gives a rough calorie estimate you can adjust afterward.</p>
+    <p class="search-status" id="meal-photo-status">Snap a photo instead -- Claude gives a rough calorie estimate you can adjust afterward.</p>
   </section>
 
   <section>
@@ -95,9 +92,11 @@
                     {% endif %}
                   </div>
                   <p class="timeline__name">{{ entry.display_name }}</p>
-                  {% if entry.food_item and entry.food_item.serving_description %}
-                    <p class="timeline__serving">
-                      {{ entry.servings }}&times; {{ entry.food_item.serving_description }}
+                  {% if entry.protein_g is not none or entry.carbs_g is not none or entry.fat_g is not none %}
+                    <p class="timeline__macros">
+                      {%- if entry.protein_g is not none %}{{ entry.protein_g|round|int }}g Protein{% endif -%}
+                      {%- if entry.carbs_g is not none %} &middot; {{ entry.carbs_g|round|int }}g Carbs{% endif -%}
+                      {%- if entry.fat_g is not none %} &middot; {{ entry.fat_g|round|int }}g Fat{% endif -%}
                     </p>
                   {% endif %}
                 </div>
@@ -121,121 +120,9 @@
       </ol>
     {% else %}
       <div class="empty-state">
-        Nothing logged yet today. Tap Log on a food below, or log a meal photo above.
+        Nothing logged yet today. Tell the assistant what you had, or log a photo above.
       </div>
     {% endif %}
   </section>
-
-  <section>
-    <div class="library-header">
-      <h2>On the Shelf</h2>
-      <span class="library-count">{{ items|length }} Item{{ '' if items|length == 1 else 's' }}</span>
-    </div>
-
-    {% if items %}
-      <ul class="food-grid">
-        {% for item in items %}
-          <li class="food-card">
-            <div class="food-card__photo-wrap">
-              {% if item.photo_url %}
-                <img class="food-card__photo" src="{{ item.photo_url }}" alt="{{ item.product_name }}" loading="lazy">
-              {% else %}
-                <div class="food-card__photo-placeholder">No Photo</div>
-              {% endif %}
-            </div>
-            <span class="food-card__tag">{{ item.nickname }}</span>
-            <div class="food-card__body">
-              <p class="food-card__name">{{ item.product_name }}</p>
-              {% if item.brand %}<p class="food-card__brand">{{ item.brand }}</p>{% endif %}
-              <p class="food-card__cals">
-                {{ item.calories|round|int if item.calories is not none else '--' }} Cal
-                {%- if item.serving_description %} &middot; {{ item.serving_description }}{% endif %}
-              </p>
-            </div>
-            <div class="food-card__actions">
-              <button
-                type="button"
-                class="btn btn--ghost"
-                data-open-nutrition
-                data-name="{{ item.product_name }}"
-                data-serving="{{ item.serving_description or '1 serving' }}"
-                data-calories="{{ item.calories if item.calories is not none else '' }}"
-                data-protein="{{ item.protein_g if item.protein_g is not none else '' }}"
-                data-carbs="{{ item.carbs_g if item.carbs_g is not none else '' }}"
-                data-fat="{{ item.fat_g if item.fat_g is not none else '' }}"
-                data-fiber="{{ item.fiber_g if item.fiber_g is not none else '' }}"
-                data-sugar="{{ item.sugar_g if item.sugar_g is not none else '' }}"
-                data-sodium="{{ item.sodium_mg if item.sodium_mg is not none else '' }}"
-              >Facts</button>
-              <button type="button" class="btn btn--teal" data-open-log data-log-item-id="{{ item.id }}" data-log-item-name="{{ item.nickname }}">Log</button>
-              <button type="button" class="btn btn--danger" data-delete-id="{{ item.id }}" data-delete-name="{{ item.nickname }}">Remove</button>
-            </div>
-            <form class="log-form" data-log-form-for="{{ item.id }}">
-              <label>
-                Meal
-                <select name="meal_type">
-                  <option value="breakfast">Breakfast</option>
-                  <option value="lunch">Lunch</option>
-                  <option value="dinner">Dinner</option>
-                  <option value="snack" selected>Snack</option>
-                </select>
-              </label>
-              <label>
-                Servings
-                <input type="number" name="servings" value="1" min="0.25" step="0.25">
-              </label>
-              <button type="submit" class="btn btn--teal">Add to Timeline</button>
-            </form>
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <div class="empty-state">
-        The shelf is empty. Search for a food above and confirm it to start your library.
-      </div>
-    {% endif %}
-  </section>
-
-  <div class="modal-backdrop" id="nutrition-modal">
-    <div class="nutrition-label" role="dialog" aria-modal="true" aria-labelledby="nl-name">
-      <button type="button" class="nutrition-label__close" id="nutrition-modal-close" aria-label="Close">&times;</button>
-      <h3>Nutrition Facts</h3>
-      <p class="nutrition-label__product" id="nl-name">&mdash;</p>
-      <div class="nutrition-label__serving">
-        <span>Serving Size</span>
-        <span id="nl-serving">&mdash;</span>
-      </div>
-      <div class="nutrition-label__cals-row">
-        <span>Calories</span>
-        <span id="nl-cals">&mdash;</span>
-      </div>
-      <div class="nutrition-label__dv-header">% Daily Value*</div>
-      <div class="nutrition-label__row">
-        <span><strong>Total Fat</strong> <span id="nl-fat-val">&mdash;</span></span>
-        <span id="nl-fat-dv"></span>
-      </div>
-      <div class="nutrition-label__row">
-        <span><strong>Sodium</strong> <span id="nl-sodium-val">&mdash;</span></span>
-        <span id="nl-sodium-dv"></span>
-      </div>
-      <div class="nutrition-label__row">
-        <span><strong>Total Carbohydrate</strong> <span id="nl-carbs-val">&mdash;</span></span>
-        <span id="nl-carbs-dv"></span>
-      </div>
-      <div class="nutrition-label__row nutrition-label__row--indent">
-        <span>Dietary Fiber <span id="nl-fiber-val">&mdash;</span></span>
-        <span id="nl-fiber-dv"></span>
-      </div>
-      <div class="nutrition-label__row nutrition-label__row--indent">
-        <span>Total Sugars <span id="nl-sugar-val">&mdash;</span></span>
-        <span></span>
-      </div>
-      <div class="nutrition-label__row">
-        <span><strong>Protein</strong> <span id="nl-protein-val">&mdash;</span></span>
-        <span></span>
-      </div>
-      <p class="nutrition-label__footnote">*% Daily Value shows how much a nutrient in a serving contributes to a daily diet, using standard FDA reference values. Figures are estimates from Open Food Facts, confirmed once and reused from your library.</p>
-    </div>
-  </div>
 
 {% endblock %}

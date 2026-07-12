@@ -1036,6 +1036,91 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 /* --------------------------------------------------------------------
+   AI food-logging agent
+   -------------------------------------------------------------------- */
+
+.agent-form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.agent-form select {
+  font-family: var(--font-body);
+  font-weight: 600;
+  padding: 12px 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text);
+  flex: 0 0 130px;
+}
+
+.agent-form input[type="text"] {
+  flex: 1 1 260px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.agent-form input[type="text"]::placeholder { color: var(--text-faint); }
+
+.agent-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.suggestion-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+  padding: 8px 8px 8px 16px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 100%;
+}
+
+.suggestion-chip__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+
+.suggestion-chip__cals {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.suggestion-chip button {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 11px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: var(--teal);
+  color: var(--bg);
+  flex-shrink: 0;
+}
+
+.timeline__macros {
+  font-family: var(--font-body);
+  font-size: 10px;
+  color: var(--text-faint);
+  margin: 2px 0 0;
+}
+
+/* --------------------------------------------------------------------
    Responsive
    -------------------------------------------------------------------- */
 
