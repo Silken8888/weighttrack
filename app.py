@@ -2010,14 +2010,36 @@ def register_routes(app):
             abort(404)
 
         payload = request.get_json(silent=True) or {}
-        try:
-            calories = float(payload.get("calories"))
-        except (TypeError, ValueError):
-            return jsonify(error="Enter a valid number of calories"), 400
-        if calories < 0:
-            return jsonify(error="Calories can't be negative"), 400
 
-        entry.manual_calories = calories
+        raw_calories = payload.get("calories")
+        if raw_calories not in (None, ""):
+            try:
+                calories = float(raw_calories)
+            except (TypeError, ValueError):
+                return jsonify(error="Enter a valid number of calories"), 400
+            if calories < 0:
+                return jsonify(error="Calories can't be negative"), 400
+            entry.manual_calories = calories
+
+        # Same date/time correction pattern already used by the AI
+        # assistant's adjustments -- keep whichever of date/time wasn't
+        # given as-is, only change the part that was actually provided.
+        raw_date = (payload.get("date") or "").strip()
+        raw_time = (payload.get("time") or "").strip()
+        if raw_date or raw_time:
+            try:
+                tz = _user_timezone()
+                current_local = _to_local_datetime(entry.logged_at, tz)
+                target_date = datetime.fromisoformat(raw_date).date() if raw_date else current_local.date()
+                if raw_time:
+                    hour, minute = (int(p) for p in raw_time.split(":")[:2])
+                    target_time = current_local.time().replace(hour=hour, minute=minute)
+                else:
+                    target_time = current_local.time()
+                entry.logged_at = _local_to_utc_naive(target_date, target_time, tz)
+            except (ValueError, TypeError, IndexError):
+                return jsonify(error="That date or time doesn't look right"), 400
+
         db.session.commit()
         return jsonify(entry.to_dict())
 
@@ -2366,7 +2388,7 @@ def register_routes(app):
             {
                 "date": day,
                 "label": f'Today \u00b7 {day.strftime("%a, %b %-d")}' if day == today else day.strftime("%A, %b %-d"),
-                "entries": food_by_day[day],
+                "entries": list(reversed(food_by_day[day])),
                 "total": round(sum(e.calories or 0 for e in food_by_day[day])),
             }
             for day in food_day_order
@@ -2410,7 +2432,7 @@ def register_routes(app):
             {
                 "date": day,
                 "label": f'Today \u00b7 {day.strftime("%a, %b %-d")}' if day == today else day.strftime("%a, %b %-d"),
-                "entries": exercise_by_day[day],
+                "entries": list(reversed(exercise_by_day[day])),
                 "total": round(sum(e.calories_burned for e in exercise_by_day[day])),
             }
             for day in day_order

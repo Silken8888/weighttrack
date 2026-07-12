@@ -1017,6 +1017,32 @@ ask the assistant directly to move a specific entry to the right time
 -- the date/time correction capability built earlier tonight applies
 here too.
 
+## Chronological ordering within days, edit modal now includes date/time
+
+**Entries within a day were displaying in reverse (latest-first)** --
+matches the screenshot exactly: 11:42 AM dinner at the top, 7:35 AM
+lunch at the bottom. The day-grouping query fetches everything in
+descending order (needed so the *days themselves* show most-recent
+first), but that left each day's own entries backwards unless
+explicitly re-sorted afterward. Fixed for both Recent Timeline and
+Exercise History -- days still show newest-first, but within each day,
+entries now read chronologically (morning to evening), matching how a
+day is actually read. Verified directly with entries at 5:18pm, 6:42pm,
+and 2:35pm and confirmed they render in true time order, not insertion
+order.
+
+**The pencil-edit is a real form now**, not a single `prompt()` for
+calories. Clicking it opens a modal with calories, date, and time
+together, and it's no longer gated to AI-estimated entries only --
+every entry can have its date/time corrected now, not just the ones
+with a guessed calorie count. Backend accepts any combination of the
+three (calories-only, date/time-only, or all together) and leaves
+whichever fields weren't touched exactly as they were. Verified all
+three modes directly: a date/time-only correction that left the
+calorie value untouched, a combined edit changing all three at once,
+and a malformed date rejected cleanly with a real error instead of a
+crash.
+
 ## Running it locally
 
 ```bash

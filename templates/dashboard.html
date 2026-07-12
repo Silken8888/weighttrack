@@ -249,15 +249,16 @@
                   </div>
                   <div class="timeline__right">
                     <span class="timeline__cals">{{ entry.calories|round|int if entry.calories is not none else '--' }} Cal</span>
-                    {% if entry.is_photo_logged %}
-                      <button
-                        type="button"
-                        class="timeline__edit"
-                        data-adjust-log-id="{{ entry.id }}"
-                        data-adjust-current="{{ entry.calories|round|int if entry.calories is not none else '' }}"
-                        aria-label="Adjust calorie estimate"
-                      >&#9998;</button>
-                    {% endif %}
+                    <button
+                      type="button"
+                      class="timeline__edit"
+                      data-adjust-log-id="{{ entry.id }}"
+                      data-adjust-current="{{ entry.calories|round|int if entry.calories is not none else '' }}"
+                      data-adjust-name="{{ entry.display_name }}"
+                      data-adjust-date="{{ entry.logged_at | local_date(fmt='%Y-%m-%d') }}"
+                      data-adjust-time="{{ entry.logged_at | local_time(fmt='%H:%M') }}"
+                      aria-label="Edit entry"
+                    >&#9998;</button>
                     <button
                       type="button"
                       class="timeline__edit"
@@ -294,6 +295,31 @@
       <p class="search-status" id="photo-picker-status"></p>
 
       <div class="photo-picker-grid" id="photo-picker-grid"></div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="entry-edit-modal">
+    <div class="nutrition-label">
+      <button type="button" class="nutrition-label__close" id="entry-edit-close" aria-label="Close">&times;</button>
+      <h3>Edit Entry</h3>
+      <p class="nutrition-label__product" id="entry-edit-name">&mdash;</p>
+
+      <form id="entry-edit-form" class="entry-edit-form">
+        <label>
+          Calories
+          <input type="number" id="entry-edit-calories" min="0" step="1">
+        </label>
+        <label>
+          Date
+          <input type="date" id="entry-edit-date">
+        </label>
+        <label>
+          Time
+          <input type="time" id="entry-edit-time">
+        </label>
+        <button type="submit" class="btn">Save</button>
+      </form>
+      <p class="search-status" id="entry-edit-status"></p>
     </div>
   </div>
 

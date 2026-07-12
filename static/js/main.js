@@ -606,32 +606,65 @@
   }
 
   function initCalorieAdjust() {
+    const modal = document.getElementById("entry-edit-modal");
+    const closeBtn = document.getElementById("entry-edit-close");
+    const nameEl = document.getElementById("entry-edit-name");
+    const form = document.getElementById("entry-edit-form");
+    const caloriesInput = document.getElementById("entry-edit-calories");
+    const dateInput = document.getElementById("entry-edit-date");
+    const timeInput = document.getElementById("entry-edit-time");
+    const statusEl = document.getElementById("entry-edit-status");
+    if (!modal || !form) return;
+
+    let currentId = null;
+
     document.querySelectorAll("[data-adjust-log-id]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        const id = btn.dataset.adjustLogId;
-        const current = btn.dataset.adjustCurrent || "";
-        const next = window.prompt("Adjust the calorie estimate for this meal:", current);
-        if (next === null) return;
+        currentId = btn.dataset.adjustLogId;
+        nameEl.textContent = btn.dataset.adjustName || "";
+        caloriesInput.value = btn.dataset.adjustCurrent || "";
+        dateInput.value = btn.dataset.adjustDate || "";
+        timeInput.value = btn.dataset.adjustTime || "";
+        statusEl.textContent = "";
+        modal.classList.add("is-open");
+      });
+    });
 
-        const calories = parseFloat(next);
-        if (isNaN(calories) || calories < 0) {
-          window.alert("Enter a valid number of calories.");
+    form.addEventListener("submit", function (evt) {
+      evt.preventDefault();
+      if (!currentId) return;
+
+      const payload = {};
+      if (caloriesInput.value !== "") {
+        const cal = parseFloat(caloriesInput.value);
+        if (isNaN(cal) || cal < 0) {
+          statusEl.textContent = "Enter a valid number of calories.";
           return;
         }
+        payload.calories = cal;
+      }
+      if (dateInput.value) payload.date = dateInput.value;
+      if (timeInput.value) payload.time = timeInput.value;
 
-        fetch("/log/" + id + "/adjust", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ calories: calories }),
+      statusEl.textContent = "Saving\u2026";
+      fetch("/log/" + currentId + "/adjust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+        .then(function (res) {
+          if (!res.ok) return res.json().then(function (b) { throw new Error(b.error || "Couldn't update that."); });
+          window.location.reload();
         })
-          .then(function (res) {
-            if (!res.ok) throw new Error("adjust failed");
-            window.location.reload();
-          })
-          .catch(function () {
-            window.alert("Couldn't update that -- try again.");
-          });
-      });
+        .catch(function (err) {
+          statusEl.textContent = err.message;
+        });
+    });
+
+    function close() { modal.classList.remove("is-open"); }
+    if (closeBtn) closeBtn.addEventListener("click", close);
+    modal.addEventListener("click", function (evt) {
+      if (evt.target === modal) close();
     });
   }
 

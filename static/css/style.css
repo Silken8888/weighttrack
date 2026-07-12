@@ -1520,6 +1520,38 @@ button { font-family: inherit; cursor: pointer; }
   margin: 10px 0;
 }
 
+.entry-edit-form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 14px 0 0;
+}
+
+.entry-edit-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  flex: 1 1 100px;
+}
+
+.entry-edit-form input {
+  font-family: var(--font-body);
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.entry-edit-form .btn {
+  align-self: flex-end;
+}
+
 .photo-picker-form input[type="url"] {
   flex: 1;
   font-family: var(--font-body);
