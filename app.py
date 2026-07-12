@@ -875,34 +875,72 @@ def _fetch_on_this_day(local_date):
             continue
         seen_years.add(year)
         pages = e.get("pages") or []
-        link = pages[0].get("content_urls", {}).get("desktop", {}).get("page") if pages else None
+        page = pages[0] if pages else {}
+        link = page.get("content_urls", {}).get("desktop", {}).get("page")
         results.append({"year": year, "text": e.get("text"), "url": link})
     return results
 
 
-def _fetch_year_narrative(year):
-    """A paragraph-length summary of a specific year, from Wikipedia's
-    year-page (not the single-event on-this-day snippet) -- confirmed
-    this endpoint is real and returns genuine content before building
-    anything around it.
+def _fetch_event_narrative(year):
+    """Real event-by-event historical narrative for a given year, not
+    generic calendar trivia and not a tangential linked topic's blurb.
+
+    Tried two other approaches first and confirmed both were wrong
+    before landing here: the year page's summary is just calendar-
+    position boilerplate ("1913 was a common year starting on
+    Wednesday..."), and the specific on-this-day event's linked
+    Wikipedia article is often about a broader connected topic, not the
+    event itself (a "Siege of Vidin" event linked to "Kingdom of
+    Serbia" generally, for one real example). What actually works: the
+    year page's own "Events" section, which is a genuine month-by-month
+    list of what happened that year -- confirmed this returns real
+    story content (Stalin travelling to Vienna, the Balkan Wars, etc.
+    for 1913) before wiring it in.
     """
     try:
-        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{year}"
+        params = {
+            "action": "query", "prop": "extracts", "explaintext": "true",
+            "titles": str(year), "format": "json",
+        }
         resp = requests.get(
-            url, headers={"User-Agent": "WeighTrack-personal-app/1.0"}, timeout=10
+            "https://en.wikipedia.org/w/api.php", params=params,
+            headers={"User-Agent": "WeighTrack-personal-app/1.0"}, timeout=15,
         )
         resp.raise_for_status()
-        return resp.json().get("extract")
+        pages = resp.json().get("query", {}).get("pages", {})
+        extract = next(iter(pages.values()), {}).get("extract", "")
     except Exception:  # noqa: BLE001
         return None
 
+    if not extract or "may refer to:" in extract[:80]:
+        # Small/ambiguous year numbers (e.g. "79") land on a Wikipedia
+        # disambiguation page instead of the actual year article --
+        # no usable narrative there, fall back cleanly.
+        return None
 
-def _refresh_year_narrative(year):
+    idx = extract.find("=== January")
+    if idx == -1:
+        idx = extract.find("Events")
+    if idx == -1:
+        idx = 0
+    chunk = extract[idx:idx + 900]
+    chunk = re.sub(r"={2,}\s*.*?\s*={2,}", " ", chunk)
+    chunk = re.sub(r"\s*\n\s*", " ", chunk).strip()
+    chunk = re.sub(r"\s{2,}", " ", chunk)
+
+    # Trim to the last complete sentence so it never cuts off mid-word.
+    last_period = chunk.rfind(". ")
+    if last_period > 150:
+        chunk = chunk[:last_period + 1]
+    return chunk or None
+
+
+def _refresh_event_narrative(year):
     """Runs in a background thread -- same hard rule as every other
     external call in this app, never inline in a request.
     """
     try:
-        text = _fetch_year_narrative(year)
+        text = _fetch_event_narrative(year)
         if text:
             with _year_narrative_lock:
                 _year_narrative_cache[year] = text
@@ -2570,15 +2608,15 @@ def register_routes(app):
             patriots_news = _daily_extras_cache["patriots_news"]
         return jsonify(on_this_day=on_this_day, patriots_news=patriots_news)
 
-    @app.route("/dashboard/year-narrative/<int:year>")
-    def dashboard_year_narrative(year):
+    @app.route("/dashboard/event-narrative/<int:year>")
+    def dashboard_event_narrative(year):
         with _year_narrative_lock:
             cached = _year_narrative_cache.get(year)
             should_start = cached is None and year not in _year_narrative_fetching
             if should_start:
                 _year_narrative_fetching.add(year)
         if should_start:
-            threading.Thread(target=_refresh_year_narrative, args=(year,), daemon=True).start()
+            threading.Thread(target=_refresh_event_narrative, args=(year,), daemon=True).start()
         return jsonify(narrative=cached)
 
     @app.route("/dashboard")

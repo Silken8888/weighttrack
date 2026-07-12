@@ -1280,6 +1280,32 @@ year returns nothing immediately then real content moments later, and
 three rapid requests for the same uncached year only trigger one actual
 fetch.
 
+## Real story content this time, and a guaranteed height cap
+
+**Found genuine story content, not another wrong guess.** Found
+partially-built code already in the file trying a *different* fix
+(linking to the on-this-day event's specific Wikipedia article instead
+of the year page) -- tested it against the real 1913 example before
+trusting it, and it turned out to link to broad, tangential topics
+("Kingdom of Serbia" as a country, not the actual siege event), which
+isn't better than the boilerplate. What actually works, confirmed
+directly: the year page's own "Events" section, a genuine month-by-
+month list of what happened that year. Also handled a real edge case
+found while testing across several years: small/ambiguous year numbers
+(like "79") land on a Wikipedia disambiguation page instead of the
+actual article -- detected and treated as no-narrative-available rather
+than showing garbage.
+
+**The height cap is now measured, not guessed.** The previous attempt
+truncated the narrative text at a fixed 320 characters as a rough
+proxy for "roughly matches Patriots News' height" -- replaced with
+something that actually measures Patriots' real rendered height in the
+browser and applies that as a hard cap to Mystery Year, with a fade-out
+at the bottom instead of an abrupt cut. Re-syncs after every reveal and
+on window resize, and only applies in the side-by-side desktop layout
+-- the stacked mobile view lets each card size to its own content
+instead, since there's nothing to align there.
+
 ## Running it locally
 
 ```bash

@@ -1419,6 +1419,22 @@ button { font-family: inherit; cursor: pointer; }
   margin-top: 8px;
 }
 
+.hero-flank--capped {
+  overflow: hidden;
+  position: relative;
+}
+
+.hero-flank--capped::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 36px;
+  background: linear-gradient(to bottom, rgba(34, 34, 44, 0), var(--surface));
+  pointer-events: none;
+}
+
 .extras-card {
   position: relative;
   padding: 20px;

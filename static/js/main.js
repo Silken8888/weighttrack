@@ -747,6 +747,25 @@
     });
   }
 
+  function syncFlankHeights() {
+    const mysteryCard = document.getElementById("mystery-year-card");
+    const patriotsCard = document.getElementById("patriots-news-card");
+    if (!mysteryCard || !patriotsCard) return;
+    // Only meaningful in the side-by-side layout -- in the stacked
+    // mobile layout (see the matching CSS breakpoint) each card should
+    // size to its own content instead.
+    if (window.innerWidth <= 1180) {
+      mysteryCard.style.maxHeight = "";
+      mysteryCard.classList.remove("hero-flank--capped");
+      return;
+    }
+    const targetHeight = patriotsCard.getBoundingClientRect().height;
+    if (targetHeight > 0) {
+      mysteryCard.style.maxHeight = targetHeight + "px";
+      mysteryCard.classList.add("hero-flank--capped");
+    }
+  }
+
   function openPopup(url) {
     // A real popup window, not a new tab -- closing it leaves the
     // original WeighTrack tab exactly where it was, per direct request.
@@ -813,7 +832,7 @@
 
     function loadNarrative(year, requestId, attempt) {
       attempt = attempt || 0;
-      fetch("/dashboard/year-narrative/" + year)
+      fetch("/dashboard/event-narrative/" + year)
         .then(function (res) { return res.json(); })
         .then(function (data) {
           // The button may have been clicked again since this fetch
@@ -854,6 +873,7 @@
       loadNarrative(pick.year, currentRequestId);
 
       prepNext();
+      syncFlankHeights();
     }
 
     function fetchPool(cb, attempt) {
@@ -939,6 +959,7 @@
       });
       newsBody.innerHTML = "";
       newsBody.appendChild(list);
+      syncFlankHeights();
     }
 
     function poll(attempt) {
@@ -1624,6 +1645,11 @@
     initVacationPage();
     initDashboardPage();
     initPopupLinks();
+    let resizeTimer = null;
+    window.addEventListener("resize", function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(syncFlankHeights, 150);
+    });
     initMysteryYear();
     initPatriotsNews();
     initAgentForm();
