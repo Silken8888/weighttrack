@@ -788,6 +788,25 @@ on yesterday's date, and confirmed this flows through correctly to the
 day-by-day weight chart's hover data -- calories burned now show up on
 the actual day they happened, not lumped into today.
 
+## Exercise History: the real cause of "jacked up" metrics
+
+Reproduced this precisely before building anything: "Today's Exercise"
+only ever queried *today's* entries, so a "yesterday I walked a mile"
+entry existed in the database (confirmed working correctly per the
+last fix) but was genuinely invisible anywhere in the UI. Retrying it
+several times, reasonably assuming it hadn't worked, silently stacked
+up duplicate entries on that same day with no way to see or catch it.
+Simulated the exact reported numbers (four ~185-calorie walk entries on
+one day) and got 732 total calories burned -- matching the screenshot's
+figure precisely, strong confirmation this was really what happened.
+
+Added an **Exercise History** section to the Dashboard: every entry
+from the last 30 days, grouped by day with a per-day total, each entry
+individually deletable with the same remove button already used
+elsewhere. Confirmed end-to-end: all duplicate entries are now visible,
+the day total matches the real (inflated) figure, deleting one drops
+both the day total and the weight chart's hover data correctly.
+
 ## Running it locally
 
 ```bash

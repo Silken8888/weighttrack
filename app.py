@@ -2042,6 +2042,38 @@ def register_routes(app):
         bmi = _calculate_bmi(latest_weight, profile.height_in)
         bmi_color = _bmi_color(bmi)
 
+        # Exercise history, grouped by day -- "Today's Exercise" only ever
+        # showed today, so a past-dated entry (e.g. "yesterday I walked a
+        # mile") was invisible anywhere in the UI even though it existed
+        # in the database. This surfaces the last 30 days, letting past
+        # entries actually be seen (and cleaned up if something got
+        # logged more than once).
+        history_start = datetime.combine(today - timedelta(days=30), datetime.min.time())
+        recent_exercise = db.session.execute(
+            db.select(ExerciseEntry)
+            .filter(ExerciseEntry.logged_at >= history_start)
+            .order_by(ExerciseEntry.logged_at.desc())
+        ).scalars().all()
+
+        exercise_by_day = {}
+        day_order = []
+        for e in recent_exercise:
+            day = e.logged_at.date()
+            if day not in exercise_by_day:
+                exercise_by_day[day] = []
+                day_order.append(day)
+            exercise_by_day[day].append(e)
+
+        exercise_history = [
+            {
+                "date": day,
+                "label": "Today" if day == today else day.strftime("%a, %b %-d"),
+                "entries": exercise_by_day[day],
+                "total": round(sum(e.calories_burned for e in exercise_by_day[day])),
+            }
+            for day in day_order
+        ]
+
         return render_template(
             "dashboard.html",
             active_nav="dashboard",
@@ -2053,6 +2085,7 @@ def register_routes(app):
             burned=burned,
             remaining=remaining,
             exercise_today=exercise_today,
+            exercise_history=exercise_history,
             bmi=bmi,
             bmi_color=bmi_color,
         )

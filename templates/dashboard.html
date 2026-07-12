@@ -115,4 +115,34 @@
     {% endif %}
   </section>
 
+  <section>
+    <div class="library-header">
+      <h2>Exercise History</h2>
+      <span class="library-count">Last 30 Days</span>
+    </div>
+    {% if exercise_history %}
+      {% for day in exercise_history %}
+        <div class="exercise-day-group">
+          <p class="exercise-day-group__label">{{ day.label }} <span>{{ day.total }} Cal Total</span></p>
+          <ul class="weigh-in-list">
+            {% for e in day.entries %}
+              <li class="weigh-in-row">
+                <div>
+                  <p class="weigh-in-row__weight">{{ e.activity }}</p>
+                  <p class="weigh-in-row__date">{{ e.logged_at.strftime('%-I:%M %p') }}</p>
+                </div>
+                <div class="weigh-in-row__right">
+                  <span class="timeline__cals">{{ e.calories_burned|round|int }} Cal</span>
+                  <button type="button" class="timeline__remove" data-delete-exercise-id="{{ e.id }}" aria-label="Remove entry">&times;</button>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state">Nothing logged in the last 30 days.</div>
+    {% endif %}
+  </section>
+
 {% endblock %}
