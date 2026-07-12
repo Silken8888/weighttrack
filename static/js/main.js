@@ -875,7 +875,7 @@
             pendingBubble.textContent = "This is taking longer than expected -- check your timeline shortly.";
             pendingBubble.classList.remove("agent-fab-msg--pending");
             pendingBubble.classList.add("agent-fab-msg--error");
-            onSettled(false);
+            onSettled(false, null);
             return;
           }
           setTimeout(function () {
@@ -888,22 +888,23 @@
           pendingBubble.textContent = job.error || "Couldn't do that.";
           pendingBubble.classList.remove("agent-fab-msg--pending");
           pendingBubble.classList.add("agent-fab-msg--error");
-          onSettled(false);
+          onSettled(false, null);
           return;
         }
 
-        pendingBubble.textContent = job.reply || "Done.";
+        const replyText = job.reply || "Done.";
+        pendingBubble.textContent = replyText;
         pendingBubble.classList.remove("agent-fab-msg--pending");
         const madeChanges = (job.entries && job.entries.length) ||
           (job.adjusted && job.adjusted.length) ||
           (job.deleted && job.deleted.length);
-        onSettled(!!madeChanges);
+        onSettled(!!madeChanges, replyText);
       })
       .catch(function () {
         pendingBubble.textContent = "Lost track of that -- check your timeline.";
         pendingBubble.classList.remove("agent-fab-msg--pending");
         pendingBubble.classList.add("agent-fab-msg--error");
-        onSettled(false);
+        onSettled(false, null);
       });
   }
 
@@ -924,8 +925,14 @@
       // Persistent-conversation mode: the floating chat. Stays open,
       // appends bubbles, only reloads the page when it's closed (and
       // only if something was actually changed) -- handled by the
-      // caller via ids.onSettled.
+      // caller via ids.onSettled. Also keeps real conversation history
+      // in memory and sends it with every message -- without this,
+      // each turn was being answered with zero memory of what was just
+      // discussed, which is its own bug distinct from the assistant
+      // lacking profile/weigh-in data.
       const thread = document.getElementById(ids.thread);
+      const history = [];
+
       form.addEventListener("submit", function (evt) {
         evt.preventDefault();
         const input = document.getElementById(ids.message);
@@ -949,17 +956,24 @@
         fetch("/agent/message", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: message, meal_type: "" }),
+          body: JSON.stringify({ message: message, meal_type: "", history: history }),
         })
           .then(function (res) {
             if (!res.ok) return res.json().then(function (b) { throw new Error(b.error || "Couldn't do that."); });
             return res.json();
           })
           .then(function (data) {
-            pollAgentThreadMessage(data.job_id, pendingBubble, function (changed) {
+            pollAgentThreadMessage(data.job_id, pendingBubble, function (changed, replyText) {
               input.disabled = false;
               input.focus();
               thread.scrollTop = thread.scrollHeight;
+              // Record this exchange for the next turn's memory --
+              // only after it actually succeeded, so a failed request
+              // doesn't pollute history with a garbage reply.
+              if (replyText !== null) {
+                history.push({ role: "user", content: message });
+                history.push({ role: "assistant", content: replyText });
+              }
               if (changed && ids.onSettled) ids.onSettled();
             }, 0);
           })

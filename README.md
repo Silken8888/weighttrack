@@ -675,6 +675,39 @@ with the chip row centered inside, leaving wide unused gradient margins
 on both sides. Constrained the tile itself to hug the chip row's width
 instead of stretching edge to edge.
 
+## Assistant now sees profile/weigh-in data, and the chat has real memory
+
+Two real bugs compounding in that screenshot, both confirmed and fixed
+directly against the exact scenario shown.
+
+**Missing data visibility.** The assistant only ever saw the 20 most
+recent food log entries -- nothing from the profile, weigh-in log, or
+the app's own calorie-target calculation. So "recalculate my daily
+calorie intake" had genuinely nothing to work with, even though that
+data exists elsewhere in the app. Now every call includes current
+weight, age, sex, height, activity level, goal weight, and -- important
+-- the app's own already-computed calorie target (same Mifflin-St Jeor
+number the Dashboard shows), so the assistant references that instead
+of deriving a second, possibly-different number on its own. Confirmed
+by capturing the actual request sent to Claude and verifying the real
+profile data is in it, not just claimed.
+
+**No conversation memory.** Separately, and probably the more visible
+half of the breakdown in that screenshot: each message in the floating
+chat was being sent to Claude as a fresh, isolated request with zero
+awareness of what was just discussed -- the UI *looked* like a
+persistent thread, but the backend was answering every turn blind. That
+explains the "Got it, thanks! That's just general info about the site
+though" reply to "most of it is in the weigh-in log or dashboard
+sections" -- Claude had no idea what "it" referred to. Fixed by
+threading real conversation history through: the frontend now tracks
+each exchange and sends it along, the backend replays it as actual
+message history (via the Messages API's `system` + `messages`
+structure) rather than cramming everything into one message every
+time. Confirmed directly: captured the messages array sent to Claude on
+a simulated turn 2 and verified the full prior exchange is there, not
+just the new message in isolation.
+
 ## Running it locally
 
 ```bash

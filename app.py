@@ -834,15 +834,21 @@ def _run_food_agent(app, job):
     whole category of ambiguity. When it's None (the general-purpose
     floating chat button), Claude infers it per item from context or
     time of day.
+
+    Also sees the user's profile, latest weight, and the app's own
+    calorie-target calculation -- not just recent food entries. Without
+    this, a question like "recalculate my daily calorie intake" had
+    nothing to work with even though the data genuinely exists
+    elsewhere in the app (Dashboard, Weigh-In Log), which is exactly
+    the kind of "the AI should be able to see this" gap worth fixing
+    directly rather than explaining away.
     """
     message = job["message"]
     meal_type = job.get("meal_type")
+    history = job.get("history") or []
     today = datetime.utcnow().date().isoformat()
     now_time = datetime.utcnow().strftime("%H:%M")
 
-    # Recent entries, so Claude has something concrete to point at when
-    # the user says "actually the toast was 3 slices" or "delete the
-    # coffee I just logged" -- the id here is what it references back.
     with app.app_context():
         recent = db.session.execute(
             db.select(FoodLogEntry).order_by(FoodLogEntry.logged_at.desc()).limit(20)
@@ -858,6 +864,43 @@ def _run_food_agent(app, job):
         else:
             recent_context = "(nothing logged yet)"
 
+        today_entries = db.session.execute(
+            db.select(FoodLogEntry).filter(
+                FoodLogEntry.logged_at >= datetime.combine(datetime.utcnow().date(), datetime.min.time())
+            )
+        ).scalars().all()
+        calories_today = round(sum(e.calories or 0 for e in today_entries))
+
+        profile = db.session.get(UserProfile, 1)
+        latest_weigh_in = db.session.execute(
+            db.select(WeighIn).order_by(WeighIn.logged_at.desc()).limit(1)
+        ).scalars().all()
+        latest_weight = latest_weigh_in[0].weight_lbs if latest_weigh_in else None
+
+        profile_lines = []
+        if latest_weight is not None:
+            profile_lines.append(f"current weight: {latest_weight} lbs")
+        if profile:
+            if profile.age:
+                profile_lines.append(f"age: {profile.age}")
+            if profile.biological_sex:
+                profile_lines.append(f"biological sex: {profile.biological_sex}")
+            if profile.height_in:
+                profile_lines.append(f"height: {profile.height_in} in")
+            if profile.activity_level:
+                label = ACTIVITY_LEVELS.get(profile.activity_level, (profile.activity_level,))[0]
+                profile_lines.append(f"activity level: {label}")
+            if profile.goal_weight_lbs:
+                profile_lines.append(f"goal weight: {profile.goal_weight_lbs} lbs")
+        calorie_target = profile.calorie_target(latest_weight) if profile and latest_weight else None
+        if calorie_target is not None:
+            profile_lines.append(
+                f"calorie target (already calculated by the app via Mifflin-St "
+                f"Jeor, using the profile above): {calorie_target} cal/day"
+            )
+        profile_lines.append(f"calories logged today so far: {calories_today}")
+        profile_context = "\n".join(profile_lines) if profile_lines else "(no profile set up yet)"
+
     if meal_type:
         meal_instruction = (
             f'The user already told the app this is for "{meal_type}" -- use '
@@ -871,58 +914,76 @@ def _run_food_agent(app, job):
             "dinner)."
         )
 
+    system_prompt = (
+        f"Today's date is {today} (current time {now_time} UTC). "
+        "You are the assistant inside WeighTrack, a personal "
+        "nutrition tracker. You can: (1) log new food/drink the user "
+        "describes, (2) adjust an entry already logged if they're "
+        "correcting or changing something -- nutrition (e.g. "
+        "\"actually the toast was 3 slices\", \"change yesterday's "
+        "lunch to 500 calories\") or WHEN it was logged (e.g. \"that "
+        "was actually at 7am\", \"move breakfast to 8:30\", \"that "
+        "happened yesterday not today\") -- adjusting the logged "
+        "time/date is fully supported, don't say you can't do it, "
+        "(3) delete an entry they ask to remove, or (4) just answer "
+        f"a question -- not everything is a logging action.\n\n{meal_instruction}\n\n"
+        f"The user's profile and current stats -- if they ask about their "
+        f"calorie target, use the already-calculated number below rather "
+        f"than re-deriving your own estimate (it needs to match what the "
+        f"Dashboard shows); if something's missing that you'd need, say "
+        f"what's missing rather than guessing:\n{profile_context}\n\n"
+        f"Recently logged entries, for reference if they're "
+        f"adjusting or deleting something (refer to one by its id; "
+        f"logged_at is shown so you know what to correct it from):\n"
+        f"{recent_context}\n\n"
+        "Break new food into distinct items the same way you always "
+        "do (e.g. toast and peanut butter are separate items, since "
+        "they have very different nutrition profiles). For each new "
+        "item, give your single best rough estimate of calories, "
+        "protein (g), carbs (g), and fat (g) for the stated "
+        "quantity -- these are estimates for personal tracking, not "
+        "medical or nutritional advice. Infer the date from context "
+        "(\"today\", \"yesterday\", a specific date, or unstated -> "
+        "today) as an ISO date (YYYY-MM-DD).\n\n"
+        "Respond with ONLY a JSON object, no markdown fences, no "
+        "other text, every turn of the conversation:\n"
+        '{"items": [{"name": "<short name>", "quantity": "<what '
+        'they said, e.g. \'2 slices\'>", "meal_type": "breakfast|'
+        'lunch|dinner|snack", "date": "YYYY-MM-DD", "calories": '
+        '<integer>, "protein_g": <number>, "carbs_g": <number>, '
+        '"fat_g": <number>}, ...], "adjustments": [{"id": <int, '
+        'the id from the recent-entries list above>, "calories": '
+        '<number or null if unchanged>, "protein_g": <number or '
+        'null>, "carbs_g": <number or null>, "fat_g": <number or '
+        'null>, "description": "<new short name, or null if '
+        'unchanged>", "date": "<YYYY-MM-DD to correct the logged '
+        'date, or null if unchanged>", "time": "<HH:MM 24-hour to '
+        'correct the logged time, or null if unchanged>"}, ...], '
+        '"deletions": [<id>, ...], "reply": "<a '
+        "short, natural response -- confirm what you did and the "
+        'total calories, or your answer if it wasn\'t a logging '
+        'action>"}'
+    )
+
+    # Real multi-turn memory: prior turns in this conversation (floating
+    # chat only -- the inline dropdown form is single-shot by design) get
+    # replayed as actual message history, not just the current message in
+    # isolation. Only the natural-language reply from past assistant
+    # turns is replayed, not the raw JSON envelope -- Claude doesn't need
+    # to see its own past JSON to follow the thread, just what it said.
+    messages = []
+    for turn in history:
+        role = turn.get("role")
+        content = (turn.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content[:4000]})
+    messages.append({"role": "user", "content": message})
+
     payload = {
         "model": app.config["ANTHROPIC_AGENT_MODEL"],
         "max_tokens": 1500,
-        "messages": [{
-            "role": "user",
-            "content": (
-                f"Today's date is {today} (current time {now_time} UTC). "
-                "You are the assistant inside WeighTrack, a personal "
-                "nutrition tracker. You can: (1) log new food/drink the user "
-                "describes, (2) adjust an entry already logged if they're "
-                "correcting or changing something -- nutrition (e.g. "
-                "\"actually the toast was 3 slices\", \"change yesterday's "
-                "lunch to 500 calories\") or WHEN it was logged (e.g. \"that "
-                "was actually at 7am\", \"move breakfast to 8:30\", \"that "
-                "happened yesterday not today\") -- adjusting the logged "
-                "time/date is fully supported, don't say you can't do it, "
-                "(3) delete an entry they ask to remove, or (4) just answer "
-                f"a question -- not everything is a logging action.\n\n{meal_instruction}\n\n"
-                f"Recently logged entries, for reference if they're "
-                f"adjusting or deleting something (refer to one by its id; "
-                f"logged_at is shown so you know what to correct it from):\n"
-                f"{recent_context}\n\n"
-                "Break new food into distinct items the same way you always "
-                "do (e.g. toast and peanut butter are separate items, since "
-                "they have very different nutrition profiles). For each new "
-                "item, give your single best rough estimate of calories, "
-                "protein (g), carbs (g), and fat (g) for the stated "
-                "quantity -- these are estimates for personal tracking, not "
-                "medical or nutritional advice. Infer the date from context "
-                "(\"today\", \"yesterday\", a specific date, or unstated -> "
-                "today) as an ISO date (YYYY-MM-DD).\n\n"
-                f'User message: "{message}"\n\n'
-                "Respond with ONLY a JSON object, no markdown fences, no "
-                "other text:\n"
-                '{"items": [{"name": "<short name>", "quantity": "<what '
-                'they said, e.g. \'2 slices\'>", "meal_type": "breakfast|'
-                'lunch|dinner|snack", "date": "YYYY-MM-DD", "calories": '
-                '<integer>, "protein_g": <number>, "carbs_g": <number>, '
-                '"fat_g": <number>}, ...], "adjustments": [{"id": <int, '
-                'the id from the recent-entries list above>, "calories": '
-                '<number or null if unchanged>, "protein_g": <number or '
-                'null>, "carbs_g": <number or null>, "fat_g": <number or '
-                'null>, "description": "<new short name, or null if '
-                'unchanged>", "date": "<YYYY-MM-DD to correct the logged '
-                'date, or null if unchanged>", "time": "<HH:MM 24-hour to '
-                'correct the logged time, or null if unchanged>"}, ...], '
-                '"deletions": [<id>, ...], "reply": "<a '
-                "short, natural response -- confirm what you did and the "
-                'total calories, or your answer if it wasn\'t a logging '
-                'action>"}'
-            ),
-        }],
+        "system": system_prompt,
+        "messages": messages,
     }
 
     data, error = _call_claude(app, payload, timeout_multiplier=3)
@@ -1351,6 +1412,20 @@ def register_routes(app):
             return jsonify(error="That's not a valid meal type"), 400
         meal_type = raw_meal_type or None
 
+        # Conversation history from the floating chat -- capped at the
+        # last 20 turns so a very long session doesn't blow up the
+        # prompt size. Each entry is trusted only for role/content;
+        # anything else the client sends is ignored.
+        raw_history = payload.get("history") or []
+        history = []
+        if isinstance(raw_history, list):
+            for turn in raw_history[-20:]:
+                if isinstance(turn, dict) and turn.get("role") in ("user", "assistant"):
+                    history.append({
+                        "role": turn["role"],
+                        "content": str(turn.get("content") or "")[:4000],
+                    })
+
         job_id = uuid.uuid4().hex
         with _jobs_lock:
             _jobs[job_id] = {
@@ -1358,6 +1433,7 @@ def register_routes(app):
                 "status": "pending",
                 "message": message,
                 "meal_type": meal_type,
+                "history": history,
                 "created_at": datetime.utcnow(),
                 "results": None,
                 "error": None,
