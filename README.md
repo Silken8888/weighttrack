@@ -1097,6 +1097,33 @@ Spread (4 Tbsp Total (2 Tbsp Each Sandwich))" -- prepositions ("each")
 stay lowercase, numbers and "%" are left alone, and the possessive
 apostrophe in "Mike's" survives correctly.
 
+## New: On This Day + Patriots News, back-burner items finally built
+
+Both were flagged as pending from the very start of this project and
+never got to. Verified both sources actually exist and work before
+writing any app code: Wikimedia's public "On this day" REST API (no
+key needed) and Boston.com's Patriots RSS feed, fetched directly and
+confirmed real, live content came back for both.
+
+Built with the same hard rule every other external call in this app
+follows: never fetch inline in a request handler, since DigitalOcean
+kills blocking requests. Instead it's a simple cache a background
+thread keeps warm -- the route always returns instantly with whatever's
+cached, kicking off a refresh in the background only when it notices
+the cache is stale (a new day for On This Day, more than 2 hours old
+for Patriots news). Confirmed directly that the route never blocks even
+on the very first, cold-cache request, and that a warm cache produces
+zero redundant fetches across repeated requests.
+
+New Dashboard section, styled with the app's signature gradient accent
+rather than looking bolted-on. On This Day shows 5 historical events
+for today's actual date (randomized pick each day, linking to the
+Wikipedia article where available); Patriots News shows the latest
+headlines as clickable links. Both use stdlib-only parsing (no new
+dependencies) and fail gracefully with a real message if a source is
+temporarily down, rather than leaving a blank space or crashing the
+page.
+
 ## Running it locally
 
 ```bash

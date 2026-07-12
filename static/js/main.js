@@ -747,6 +747,92 @@
     });
   }
 
+  function initDailyExtras() {
+    const otdBody = document.getElementById("on-this-day-body");
+    const newsBody = document.getElementById("patriots-news-body");
+    if (!otdBody && !newsBody) return;
+
+    function renderOnThisDay(events) {
+      if (!otdBody) return;
+      if (!events || !events.length) {
+        otdBody.innerHTML = '<p class="empty-state">Couldn\u2019t load this today -- try again later.</p>';
+        return;
+      }
+      const list = document.createElement("ul");
+      list.className = "extras-list";
+      events.forEach(function (e) {
+        const li = document.createElement("li");
+        li.className = "extras-list__item";
+        const yearSpan = document.createElement("span");
+        yearSpan.className = "extras-list__year";
+        yearSpan.textContent = e.year;
+        li.appendChild(yearSpan);
+        const textEl = e.url ? document.createElement("a") : document.createElement("span");
+        if (e.url) {
+          textEl.href = e.url;
+          textEl.target = "_blank";
+          textEl.rel = "noopener";
+        }
+        textEl.className = "extras-list__text";
+        textEl.textContent = e.text;
+        li.appendChild(textEl);
+        list.appendChild(li);
+      });
+      otdBody.innerHTML = "";
+      otdBody.appendChild(list);
+    }
+
+    function renderPatriotsNews(items) {
+      if (!newsBody) return;
+      if (!items || !items.length) {
+        newsBody.innerHTML = '<p class="empty-state">Couldn\u2019t load this today -- try again later.</p>';
+        return;
+      }
+      const list = document.createElement("ul");
+      list.className = "extras-list";
+      items.forEach(function (n) {
+        const li = document.createElement("li");
+        li.className = "extras-list__item";
+        const link = document.createElement("a");
+        link.href = n.url;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.className = "extras-list__text";
+        link.textContent = n.title;
+        li.appendChild(link);
+        list.appendChild(li);
+      });
+      newsBody.innerHTML = "";
+      newsBody.appendChild(list);
+    }
+
+    function poll(attempt) {
+      fetch("/dashboard/daily-extras")
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          const otdReady = data.on_this_day && data.on_this_day.length;
+          const newsReady = data.patriots_news && data.patriots_news.length;
+          if (otdReady) renderOnThisDay(data.on_this_day);
+          if (newsReady) renderPatriotsNews(data.patriots_news);
+
+          // First-ever load: the background fetch may still be running.
+          // Retry a few times, a few seconds apart, before giving up.
+          if ((!otdReady || !newsReady) && attempt < 5) {
+            setTimeout(function () { poll(attempt + 1); }, 3000);
+          } else {
+            if (!otdReady) renderOnThisDay(null);
+            if (!newsReady) renderPatriotsNews(null);
+          }
+        })
+        .catch(function () {
+          renderOnThisDay(null);
+          renderPatriotsNews(null);
+        });
+    }
+
+    poll(0);
+  }
+
   function initDashboardPage() {
     const profileForm = document.getElementById("profile-form");
     if (profileForm) {
@@ -1410,6 +1496,7 @@
     initWeighInPage();
     initVacationPage();
     initDashboardPage();
+    initDailyExtras();
     initAgentForm();
     initAgentFab();
     initPhotoPicker();

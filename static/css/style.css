@@ -1258,6 +1258,75 @@ button { font-family: inherit; cursor: pointer; }
   }
 }
 
+.dashboard-columns--extras {
+  margin-top: 8px;
+}
+
+.extras-card {
+  position: relative;
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.extras-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--gradient-accent);
+}
+
+.extras-card .library-header {
+  margin-bottom: 4px;
+}
+
+.extras-card__body {
+  margin-top: 12px;
+}
+
+.extras-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.extras-list__item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.extras-list__year {
+  flex: 0 0 auto;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--teal);
+}
+
+.extras-list__text {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+a.extras-list__text:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
 .exercise-day-group {
   margin-bottom: 20px;
 }

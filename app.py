@@ -5,7 +5,9 @@ import json
 import base64
 import time
 import uuid
+import random
 import threading
+import xml.etree.ElementTree as ET
 from queue import Queue, Empty
 from datetime import datetime, timedelta, date, timezone, time as dtime
 from zoneinfo import ZoneInfo
@@ -143,6 +145,21 @@ def create_app(config_name=None):
 _search_queue = Queue()
 _jobs = {}
 _jobs_lock = threading.Lock()
+
+# Dashboard "extras" -- On This Day and Patriots news -- are fetched
+# from external sources but NEVER inside a request handler (the hard
+# rule this app follows everywhere else too: DigitalOcean kills
+# blocking request handlers). Instead this is a simple cache, kept
+# fresh by a background thread the route kicks off when it notices the
+# cache is stale; the route itself always returns instantly with
+# whatever's currently cached, even if that's nothing yet on the very
+# first load.
+_daily_extras_cache = {
+    "on_this_day": None, "on_this_day_date": None,
+    "patriots_news": None, "patriots_fetched_at": None,
+}
+_daily_extras_lock = threading.Lock()
+_daily_extras_refreshing = False
 
 
 def _prune_old_jobs(ttl_seconds):
@@ -818,6 +835,98 @@ def _rank_products(products):
     first.
     """
     return sorted(products, key=lambda p: (p.get("calories") is None, p.get("photo_url") is None))
+
+
+def _fetch_on_this_day(local_date):
+    """A handful of historical events for today's local calendar date,
+    via Wikimedia's public REST API -- no key required. Picks 5 at
+    random out of whatever the API returns, so it's a fresh mix each
+    day rather than always the same top events, but stays consistent
+    for the rest of that one day since the cache is keyed by date.
+    """
+    url = f"https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/events/{local_date.month:02d}/{local_date.day:02d}"
+    try:
+        resp = requests.get(
+            url, headers={"User-Agent": "WeighTrack-personal-app/1.0"}, timeout=10
+        )
+        resp.raise_for_status()
+        events = resp.json().get("events", [])
+    except Exception:  # noqa: BLE001 -- a flaky external source shouldn't crash the refresh
+        return None
+
+    if not events:
+        return None
+    picked = random.sample(events, min(5, len(events)))
+    picked.sort(key=lambda e: e.get("year", 0))
+    results = []
+    for e in picked:
+        pages = e.get("pages") or []
+        link = pages[0].get("content_urls", {}).get("desktop", {}).get("page") if pages else None
+        results.append({"year": e.get("year"), "text": e.get("text"), "url": link})
+    return results
+
+
+def _fetch_patriots_news():
+    """Latest few Patriots headlines from Boston.com's RSS feed, parsed
+    with the standard library (no new dependency needed for basic RSS).
+    """
+    try:
+        resp = requests.get(
+            "https://www.boston.com/tag/new-england-patriots/feed/",
+            headers={"User-Agent": "Mozilla/5.0 (compatible; WeighTrack/1.0)"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+    except Exception:  # noqa: BLE001
+        return None
+
+    items = []
+    for item in root.findall("./channel/item")[:5]:
+        title = item.findtext("title")
+        link = item.findtext("link")
+        pub_date = item.findtext("pubDate")
+        if title and link:
+            items.append({"title": title, "url": link, "pub_date": pub_date})
+    return items or None
+
+
+def _refresh_daily_extras(app, local_date):
+    """Runs in a background thread, never inline in a request -- same
+    hard rule as every other external call in this app. Updates
+    whatever succeeds; a failure on one source doesn't block the other.
+    """
+    global _daily_extras_refreshing
+    try:
+        on_this_day = _fetch_on_this_day(local_date)
+        patriots_news = _fetch_patriots_news()
+        with _daily_extras_lock:
+            if on_this_day is not None:
+                _daily_extras_cache["on_this_day"] = on_this_day
+                _daily_extras_cache["on_this_day_date"] = local_date
+            if patriots_news is not None:
+                _daily_extras_cache["patriots_news"] = patriots_news
+                _daily_extras_cache["patriots_fetched_at"] = datetime.utcnow()
+    finally:
+        with _daily_extras_lock:
+            _daily_extras_refreshing = False
+
+
+def _maybe_refresh_daily_extras(app, local_date):
+    """Kicks off a background refresh if the cache is stale and nothing
+    is already fetching -- always returns immediately either way, the
+    route reads whatever's cached right now rather than waiting.
+    """
+    global _daily_extras_refreshing
+    with _daily_extras_lock:
+        on_this_day_stale = _daily_extras_cache["on_this_day_date"] != local_date
+        fetched_at = _daily_extras_cache["patriots_fetched_at"]
+        patriots_stale = fetched_at is None or (datetime.utcnow() - fetched_at) > timedelta(hours=2)
+        if not (on_this_day_stale or patriots_stale) or _daily_extras_refreshing:
+            return
+        _daily_extras_refreshing = True
+
+    threading.Thread(target=_refresh_daily_extras, args=(app, local_date), daemon=True).start()
 
 
 def _run_text_job(app, job):
@@ -1685,6 +1794,7 @@ def _title_case(text):
     return _TITLE_CASE_WORD_RE.sub(replace, text)
 
 
+
 def _calculate_bmi(weight_lbs, height_in):
     """Standard imperial BMI formula: 703 * lbs / inches^2."""
     if not weight_lbs or not height_in:
@@ -2395,6 +2505,15 @@ def register_routes(app):
     # -----------------------------------------------------------------
     # Dashboard
     # -----------------------------------------------------------------
+
+    @app.route("/dashboard/daily-extras")
+    def dashboard_daily_extras():
+        local_date = _local_today()
+        _maybe_refresh_daily_extras(app, local_date)
+        with _daily_extras_lock:
+            on_this_day = _daily_extras_cache["on_this_day"]
+            patriots_news = _daily_extras_cache["patriots_news"]
+        return jsonify(on_this_day=on_this_day, patriots_news=patriots_news)
 
     @app.route("/dashboard")
     def dashboard():
