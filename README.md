@@ -807,6 +807,34 @@ elsewhere. Confirmed end-to-end: all duplicate entries are now visible,
 the day total matches the real (inflated) figure, deleting one drops
 both the day total and the weight chart's hover data correctly.
 
+## Exercise entries fully in the assistant's reach, plus every AI feature shares one context
+
+**The screenshot's exact failure**: asking the floating chat to adjust
+an exercise entry's time got "I don't see an exercise entry logged" --
+because the assistant's context only ever included food entries, never
+exercise. Extended the tool schema with `exercise_items` (new exercise,
+logged the same MET-based deterministic way as the dedicated form) and
+an `entity` field on adjustments/deletions (since food and exercise ids
+overlap and need disambiguating). Confirmed directly: asked it to move
+an exercise entry to 6:15 PM yesterday, got a correctly-timestamped
+update back.
+
+**Then went further**: audited every AI-driven feature in the app and
+found the other two -- the dedicated Log Exercise form and the meal-
+photo calorie estimator -- had their own narrow, inconsistent slices of
+app data (one saw only the latest weight, the other saw nothing at
+all). Pulled all the context-gathering into one shared
+`_gather_app_context()` -- profile, latest weight, the app's own
+calorie-target calculation, recent food, recent exercise -- so every AI
+feature sees the same real picture instead of maintaining its own
+independent, driftable idea of what data exists. The exercise estimator
+now also gets recent-exercise visibility specifically so it can flag a
+likely duplicate before it's logged, and the meal-photo estimator now
+sees recent food for estimate consistency. Confirmed by capturing the
+actual prompts sent to Claude for both and verifying the real data is
+present, not just claimed; also re-ran the existing food-agent test
+suite after the refactor to confirm nothing regressed.
+
 ## Running it locally
 
 ```bash

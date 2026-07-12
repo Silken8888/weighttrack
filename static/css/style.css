@@ -1251,12 +1251,30 @@ button { font-family: inherit; cursor: pointer; }
   margin: 0 0 8px;
   display: flex;
   justify-content: space-between;
+  align-items: center;
 }
 
 .exercise-day-group__label span {
   color: var(--text-faint);
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
+
+.exercise-day-group__clear {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--danger);
+  background: none;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-pill);
+  padding: 3px 10px;
+}
+
+.exercise-day-group__clear:hover { background: rgba(251, 79, 79, 0.12); }
 
 .exercise-day-group .weigh-in-list {
   margin-bottom: 0;

@@ -123,7 +123,13 @@
     {% if exercise_history %}
       {% for day in exercise_history %}
         <div class="exercise-day-group">
-          <p class="exercise-day-group__label">{{ day.label }} <span>{{ day.total }} Cal Total</span></p>
+          <p class="exercise-day-group__label">
+            {{ day.label }}
+            <span>
+              {{ day.total }} Cal Total
+              <button type="button" class="exercise-day-group__clear" data-clear-day="{{ day.date.isoformat() }}">Clear Day</button>
+            </span>
+          </p>
           <ul class="weigh-in-list">
             {% for e in day.entries %}
               <li class="weigh-in-row">

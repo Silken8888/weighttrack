@@ -475,15 +475,109 @@ def _extract_tool_input(data, tool_name):
     return None
 
 
-def _estimate_meal_calories(app, image_bytes):
+def _gather_app_context(app):
+    """One shared snapshot of real app data -- profile, latest weight,
+    the app's own calorie-target calculation, recent food entries,
+    recent exercise entries -- for any AI-driven feature to use.
+
+    Centralized on purpose: confirmed repeatedly tonight that an AI
+    feature only seeing its own narrow local slice of data produces
+    genuinely wrong or confused behavior (recalculating a calorie
+    target with no profile visible, not recognizing an exercise entry
+    existed at all, an exercise estimate that can't tell it's about to
+    duplicate something just logged). Every AI-driven feature should
+    see the same real picture of the app, not maintain its own
+    independent, driftable idea of what data is available.
+
+    Returns a plain dict of primitives/strings only -- no ORM objects
+    -- so it's safe to use outside the app_context() it was built
+    inside without any detached-instance risk.
+    """
+    with app.app_context():
+        recent_food = db.session.execute(
+            db.select(FoodLogEntry).order_by(FoodLogEntry.logged_at.desc()).limit(20)
+        ).scalars().all()
+        recent_food_context = "\n".join(
+            f'id={e.id}: "{e.display_name}", {e.meal_type}, logged '
+            f'{e.logged_at.strftime("%Y-%m-%d %H:%M")}, '
+            f'{round(e.calories) if e.calories is not None else "?"} cal'
+            for e in recent_food
+        ) or "(nothing logged yet)"
+
+        recent_exercise = db.session.execute(
+            db.select(ExerciseEntry).order_by(ExerciseEntry.logged_at.desc()).limit(20)
+        ).scalars().all()
+        recent_exercise_context = "\n".join(
+            f'id={e.id}: "{e.activity}", logged '
+            f'{e.logged_at.strftime("%Y-%m-%d %H:%M")}, '
+            f'{round(e.calories_burned)} cal burned'
+            for e in recent_exercise
+        ) or "(nothing logged yet)"
+
+        today_entries = db.session.execute(
+            db.select(FoodLogEntry).filter(
+                FoodLogEntry.logged_at >= datetime.combine(datetime.utcnow().date(), datetime.min.time())
+            )
+        ).scalars().all()
+        calories_today = round(sum(e.calories or 0 for e in today_entries))
+
+        profile = db.session.get(UserProfile, 1)
+        latest_weigh_in = db.session.execute(
+            db.select(WeighIn).order_by(WeighIn.logged_at.desc()).limit(1)
+        ).scalars().all()
+        latest_weight = latest_weigh_in[0].weight_lbs if latest_weigh_in else None
+
+        profile_lines = []
+        if latest_weight is not None:
+            profile_lines.append(f"current weight: {latest_weight} lbs")
+        if profile:
+            if profile.age:
+                profile_lines.append(f"age: {profile.age}")
+            if profile.biological_sex:
+                profile_lines.append(f"biological sex: {profile.biological_sex}")
+            if profile.height_in:
+                profile_lines.append(f"height: {profile.height_in} in")
+            if profile.activity_level:
+                label = ACTIVITY_LEVELS.get(profile.activity_level, (profile.activity_level,))[0]
+                profile_lines.append(f"activity level: {label}")
+            if profile.goal_weight_lbs:
+                profile_lines.append(f"goal weight: {profile.goal_weight_lbs} lbs")
+        calorie_target = profile.calorie_target(latest_weight) if profile and latest_weight else None
+        if calorie_target is not None:
+            profile_lines.append(
+                f"calorie target (already calculated by the app via "
+                f"Mifflin-St Jeor, using the profile above): "
+                f"{calorie_target} cal/day"
+            )
+        profile_lines.append(f"calories logged today so far: {calories_today}")
+        profile_context = "\n".join(profile_lines) if profile_lines else "(no profile set up yet)"
+
+    return {
+        "latest_weight": latest_weight,
+        "weight_kg": latest_weight * 0.453592 if latest_weight else None,
+        "calorie_target": calorie_target,
+        "profile_context": profile_context,
+        "recent_food_context": recent_food_context,
+        "recent_exercise_context": recent_exercise_context,
+    }
+
+
+def _estimate_meal_calories(app, image_bytes, ctx=None):
     """Ask Claude for a rough calorie estimate + short description of a
     meal photo. Returns (calories, description, error) -- calories/
     description are None on failure, error is None on success.
+
+    Accepts the shared app-data context (recent food entries in
+    particular) so the estimate can stay consistent with how similar
+    meals were logged before, instead of estimating in a vacuum with
+    no awareness of anything else in the app.
     """
     try:
         resized = _resize_for_ai(image_bytes)
     except UnidentifiedImageError:
         return None, None, "That doesn't look like a readable image."
+
+    recent_food_context = (ctx or {}).get("recent_food_context", "(nothing logged yet)")
 
     b64 = base64.standard_b64encode(resized).decode("utf-8")
     payload = {
@@ -497,7 +591,12 @@ def _estimate_meal_calories(app, image_bytes):
                     "Look at this photo of a meal. Give your single best rough "
                     "calorie estimate for personal food tracking (this is not "
                     "medical or nutritional advice, just a ballpark), plus a short "
-                    "plain description under 8 words. Respond with ONLY a JSON "
+                    "plain description under 8 words. If this looks similar to "
+                    "something already logged recently (see below), stay roughly "
+                    "consistent with that estimate rather than estimating from "
+                    "scratch.\n\n"
+                    f"Recently logged food, for consistency:\n{recent_food_context}\n\n"
+                    "Respond with ONLY a JSON "
                     'object and nothing else, no markdown fences: '
                     '{"calories": <integer>, "description": "<text>"}'
                 )},
@@ -735,17 +834,19 @@ def _run_exercise_estimate(app, job):
     mile") instead of always stamping it as right now -- same date
     handling the food agent already has, applied here too so exercise
     entries land on the correct day instead of always today.
+
+    Uses the same shared app-data context every other AI feature uses
+    -- in particular, recent exercise entries, so if the described
+    activity looks like a near-duplicate of something already logged
+    today or yesterday, the assistant can flag that in its note instead
+    of silently stacking another entry on top (the exact failure mode
+    that produced a 700+ calorie day from repeated retries earlier).
     """
     activity_text = job["activity"]
     today = datetime.utcnow().date().isoformat()
 
-    with app.app_context():
-        weigh_ins = db.session.execute(
-            db.select(WeighIn).order_by(WeighIn.logged_at.desc()).limit(1)
-        ).scalars().all()
-        latest_weight = weigh_ins[0].weight_lbs if weigh_ins else None
-
-    weight_kg = latest_weight * 0.453592 if latest_weight else None
+    ctx = _gather_app_context(app)
+    weight_kg = ctx["weight_kg"]
 
     if weight_kg is not None:
         instruction = (
@@ -788,7 +889,12 @@ def _run_exercise_estimate(app, job):
                 "described exercise activity, for a personal fitness "
                 f"tracker -- not medical advice. {instruction} Infer the "
                 "date it happened from what they say (\"today\", "
-                "\"yesterday\", unstated -> today) as an ISO date.\n\n"
+                "\"yesterday\", unstated -> today) as an ISO date. If this "
+                "looks like a near-duplicate of something already listed "
+                "below (same activity, same day), say so briefly in the "
+                "note so the user notices before it's logged twice.\n\n"
+                f"Recently logged exercise, for duplicate-checking:\n"
+                f"{ctx['recent_exercise_context']}\n\n"
                 f'Activity described: "{activity_text}"\n\n'
                 f"Respond with ONLY a JSON object, no markdown fences, no "
                 f"other text: {schema}"
@@ -854,7 +960,7 @@ def _run_meal_photo_job(app, job):
     if error:
         return None, error
 
-    ai_calories, ai_description, ai_error = _estimate_meal_calories(app, image_bytes)
+    ai_calories, ai_description, ai_error = _estimate_meal_calories(app, image_bytes, _gather_app_context(app))
     # An AI-estimate failure shouldn't discard a photo that uploaded fine
     # -- save the entry anyway with calories left blank so the user can
     # fill it in themselves, and surface the AI error as a note instead
@@ -906,57 +1012,11 @@ def _run_food_agent(app, job):
     today = datetime.utcnow().date().isoformat()
     now_time = datetime.utcnow().strftime("%H:%M")
 
-    with app.app_context():
-        recent = db.session.execute(
-            db.select(FoodLogEntry).order_by(FoodLogEntry.logged_at.desc()).limit(20)
-        ).scalars().all()
-        if recent:
-            recent_lines = [
-                f'id={e.id}: "{e.display_name}", {e.meal_type}, logged '
-                f'{e.logged_at.strftime("%Y-%m-%d %H:%M")}, '
-                f'{round(e.calories) if e.calories is not None else "?"} cal'
-                for e in recent
-            ]
-            recent_context = "\n".join(recent_lines)
-        else:
-            recent_context = "(nothing logged yet)"
-
-        today_entries = db.session.execute(
-            db.select(FoodLogEntry).filter(
-                FoodLogEntry.logged_at >= datetime.combine(datetime.utcnow().date(), datetime.min.time())
-            )
-        ).scalars().all()
-        calories_today = round(sum(e.calories or 0 for e in today_entries))
-
-        profile = db.session.get(UserProfile, 1)
-        latest_weigh_in = db.session.execute(
-            db.select(WeighIn).order_by(WeighIn.logged_at.desc()).limit(1)
-        ).scalars().all()
-        latest_weight = latest_weigh_in[0].weight_lbs if latest_weigh_in else None
-
-        profile_lines = []
-        if latest_weight is not None:
-            profile_lines.append(f"current weight: {latest_weight} lbs")
-        if profile:
-            if profile.age:
-                profile_lines.append(f"age: {profile.age}")
-            if profile.biological_sex:
-                profile_lines.append(f"biological sex: {profile.biological_sex}")
-            if profile.height_in:
-                profile_lines.append(f"height: {profile.height_in} in")
-            if profile.activity_level:
-                label = ACTIVITY_LEVELS.get(profile.activity_level, (profile.activity_level,))[0]
-                profile_lines.append(f"activity level: {label}")
-            if profile.goal_weight_lbs:
-                profile_lines.append(f"goal weight: {profile.goal_weight_lbs} lbs")
-        calorie_target = profile.calorie_target(latest_weight) if profile and latest_weight else None
-        if calorie_target is not None:
-            profile_lines.append(
-                f"calorie target (already calculated by the app via Mifflin-St "
-                f"Jeor, using the profile above): {calorie_target} cal/day"
-            )
-        profile_lines.append(f"calories logged today so far: {calories_today}")
-        profile_context = "\n".join(profile_lines) if profile_lines else "(no profile set up yet)"
+    ctx = _gather_app_context(app)
+    recent_context = ctx["recent_food_context"]
+    exercise_context = ctx["recent_exercise_context"]
+    profile_context = ctx["profile_context"]
+    latest_weight = ctx["latest_weight"]
 
     if meal_type:
         meal_instruction = (
@@ -975,36 +1035,53 @@ def _run_food_agent(app, job):
         f"Today's date is {today} (current time {now_time} UTC). "
         "You are the assistant inside WeighTrack, a personal "
         "nutrition tracker. You can: (1) log new food/drink the user "
-        "describes, (2) adjust an entry already logged if they're "
-        "correcting or changing something -- nutrition (e.g. "
-        "\"actually the toast was 3 slices\", \"change yesterday's "
-        "lunch to 500 calories\") or WHEN it was logged (e.g. \"that "
-        "was actually at 7am\", \"move breakfast to 8:30\", \"that "
-        "happened yesterday not today\") -- adjusting the logged "
-        "time/date is fully supported, don't say you can't do it, "
-        "(3) delete an entry they ask to remove, or (4) just answer "
-        f"a question -- not everything is a logging action.\n\n{meal_instruction}\n\n"
+        "describes, (2) log new exercise they describe (e.g. \"I "
+        "walked a mile\"), (3) adjust an entry already logged (food or "
+        "exercise) if they're correcting or changing something -- "
+        "nutrition/calories burned (e.g. \"actually the toast was 3 "
+        "slices\", \"that walk was more like 300 calories\") or WHEN "
+        "it was logged (e.g. \"that was actually at 7am\", \"change "
+        "the time to 6:15pm yesterday for my exercise\") -- adjusting "
+        "the logged time/date is fully supported for BOTH food and "
+        "exercise entries, don't say you can't do it or that you don't "
+        "see an entry without checking the exercise list below first, "
+        "(4) delete an entry (food or exercise) they ask to remove, or "
+        f"(5) just answer a question -- not everything is a logging "
+        f"action.\n\n{meal_instruction}\n\n"
         f"The user's profile and current stats -- if they ask about their "
         f"calorie target, use the already-calculated number below rather "
         f"than re-deriving your own estimate (it needs to match what the "
         f"Dashboard shows); if something's missing that you'd need, say "
         f"what's missing rather than guessing:\n{profile_context}\n\n"
-        f"Recently logged entries, for reference if they're "
+        f"Recently logged FOOD entries, for reference if they're "
         f"adjusting or deleting something (refer to one by its id; "
         f"logged_at is shown so you know what to correct it from):\n"
         f"{recent_context}\n\n"
+        f"Recently logged EXERCISE entries, same idea -- check this "
+        f"list before saying you don't see an exercise entry:\n"
+        f"{exercise_context}\n\n"
         "Break new food into distinct items the same way you always "
         "do (e.g. toast and peanut butter are separate items, since "
         "they have very different nutrition profiles). For each new "
-        "item, give your single best rough estimate of calories, "
+        "food item, give your single best rough estimate of calories, "
         "protein (g), carbs (g), and fat (g) for the stated "
         "quantity -- these are estimates for personal tracking, not "
-        "medical or nutritional advice. Infer the date from context "
-        "(\"today\", \"yesterday\", a specific date, or unstated -> "
-        "today) as an ISO date (YYYY-MM-DD).\n\n"
+        "medical or nutritional advice. For new exercise, don't "
+        "compute calories yourself -- identify an appropriate MET "
+        "(metabolic equivalent) value and the duration in hours (infer "
+        "from a stated distance + typical pace, a stated time, or a "
+        "reasonable default), and the app will multiply MET x weight "
+        "x duration using the real logged weight, since that's more "
+        "reliable than doing that arithmetic yourself. Infer the date "
+        "from context (\"today\", \"yesterday\", a specific date, or "
+        "unstated -> today) as an ISO date (YYYY-MM-DD) for anything "
+        "new or adjusted.\n\n"
+        "For adjustments and deletions, always include which kind of "
+        "entry it is (\"food\" or \"exercise\") along with the id, "
+        "since the two lists above have independent ids.\n\n"
         "Always call the log_and_reply tool to respond, every turn -- "
-        "even for a pure question, call it with empty items/"
-        "adjustments/deletions and put your answer in reply."
+        "even for a pure question, call it with empty arrays and put "
+        "your answer in reply."
     )
 
     # Real multi-turn memory: prior turns in this conversation (floating
@@ -1033,10 +1110,10 @@ def _run_food_agent(app, job):
     tool = {
         "name": "log_and_reply",
         "description": (
-            "Log new food items, adjust or delete existing log entries, "
-            "and reply to the user. Call this every turn, even for a "
-            "pure question -- use empty arrays for items/adjustments/"
-            "deletions when nothing needs to change."
+            "Log new food or exercise, adjust or delete existing entries "
+            "of either kind, and reply to the user. Call this every turn, "
+            "even for a pure question -- use empty arrays when nothing "
+            "needs to change."
         ),
         "input_schema": {
             "type": "object",
@@ -1059,35 +1136,57 @@ def _run_food_agent(app, job):
                         "required": ["name", "calories"],
                     },
                 },
-                "adjustments": {
+                "exercise_items": {
                     "type": "array",
-                    "description": "Corrections to entries already logged, referenced by id.",
+                    "description": "New exercise to log. Give met_value and duration_hours, not calories -- the app computes calories itself from the real logged weight.",
                     "items": {
                         "type": "object",
                         "properties": {
+                            "activity": {"type": "string"},
+                            "met_value": {"type": "number"},
+                            "duration_hours": {"type": "number"},
+                            "date": {"type": "string", "description": "ISO date YYYY-MM-DD"},
+                        },
+                        "required": ["activity", "met_value", "duration_hours"],
+                    },
+                },
+                "adjustments": {
+                    "type": "array",
+                    "description": "Corrections to entries already logged, referenced by entity + id.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "entity": {"type": "string", "enum": ["food", "exercise"]},
                             "id": {"type": "integer"},
                             "calories": nullable_number,
                             "protein_g": nullable_number,
                             "carbs_g": nullable_number,
                             "fat_g": nullable_number,
-                            "description": {"type": ["string", "null"]},
+                            "description": {"type": ["string", "null"], "description": "New name/description (food) or new activity text (exercise), or null if unchanged."},
                             "date": {"type": ["string", "null"], "description": "ISO date YYYY-MM-DD or null if unchanged"},
                             "time": {"type": ["string", "null"], "description": "HH:MM 24-hour or null if unchanged"},
                         },
-                        "required": ["id"],
+                        "required": ["entity", "id"],
                     },
                 },
                 "deletions": {
                     "type": "array",
-                    "description": "ids of entries to delete.",
-                    "items": {"type": "integer"},
+                    "description": "Entries to delete, referenced by entity + id.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "entity": {"type": "string", "enum": ["food", "exercise"]},
+                            "id": {"type": "integer"},
+                        },
+                        "required": ["entity", "id"],
+                    },
                 },
                 "reply": {
                     "type": "string",
                     "description": "Short natural response -- confirm what you did and the total calories, or the answer if it wasn't a logging action.",
                 },
             },
-            "required": ["items", "adjustments", "deletions", "reply"],
+            "required": ["items", "exercise_items", "adjustments", "deletions", "reply"],
         },
     }
 
@@ -1109,10 +1208,12 @@ def _run_food_agent(app, job):
         return None, "Got a response from the AI but couldn't read it. Try rephrasing."
 
     items = parsed.get("items") or []
+    exercise_items = parsed.get("exercise_items") or []
     adjustments = parsed.get("adjustments") or []
     deletions = parsed.get("deletions") or []
     reply = (parsed.get("reply") or "").strip() or "Done."
     batch_id = uuid.uuid4().hex if items else None
+    weight_kg = latest_weight * 0.453592 if latest_weight else None
 
     def _num(source, key):
         val = source.get(key)
@@ -1121,7 +1222,7 @@ def _run_food_agent(app, job):
         except (TypeError, ValueError):
             return None
 
-    created, adjusted, deleted_ids = [], [], []
+    created, created_exercise, adjusted, deleted_ids = [], [], [], []
     with app.app_context():
         for item in items:
             try:
@@ -1163,8 +1264,72 @@ def _run_food_agent(app, job):
             except Exception:  # noqa: BLE001 -- one malformed item shouldn't drop the rest
                 continue
 
+        for ex_item in exercise_items:
+            try:
+                try:
+                    ex_date = datetime.fromisoformat(ex_item.get("date", today)).date()
+                except (ValueError, TypeError):
+                    ex_date = datetime.utcnow().date()
+                ex_logged_at = (
+                    datetime.utcnow()
+                    if ex_date == datetime.utcnow().date()
+                    else datetime.combine(ex_date, datetime.min.time().replace(hour=12))
+                )
+
+                activity = (ex_item.get("activity") or "Exercise").strip()[:200]
+                if weight_kg is not None:
+                    met_value = float(ex_item.get("met_value"))
+                    duration_hours = float(ex_item.get("duration_hours"))
+                    calories_burned = round(met_value * weight_kg * duration_hours)
+                else:
+                    # No weight on file -- can't do the real calculation,
+                    # fall back to whatever Claude estimated as a rough
+                    # calorie figure if it gave one, else skip the item
+                    # rather than logging a meaningless 0.
+                    fallback = _num(ex_item, "calories")
+                    if fallback is None:
+                        continue
+                    calories_burned = round(fallback)
+
+                exercise_entry = ExerciseEntry(
+                    activity=activity, calories_burned=calories_burned, logged_at=ex_logged_at
+                )
+                db.session.add(exercise_entry)
+                created_exercise.append(exercise_entry)
+            except Exception:  # noqa: BLE001
+                continue
+
         for adj in adjustments:
             try:
+                entity = adj.get("entity")
+                if entity == "exercise":
+                    ex_entry = db.session.get(ExerciseEntry, int(adj.get("id")))
+                    if ex_entry is None:
+                        continue
+                    if adj.get("calories") is not None:
+                        ex_entry.calories_burned = _num(adj, "calories")
+                    if adj.get("description"):
+                        ex_entry.activity = str(adj["description"]).strip()[:200]
+
+                    new_date_str = adj.get("date")
+                    new_time_str = adj.get("time")
+                    if new_date_str or new_time_str:
+                        try:
+                            target_date = (
+                                datetime.fromisoformat(new_date_str).date()
+                                if new_date_str else ex_entry.logged_at.date()
+                            )
+                            if new_time_str:
+                                hour, minute = (int(p) for p in new_time_str.split(":")[:2])
+                                target_time = ex_entry.logged_at.time().replace(hour=hour, minute=minute)
+                            else:
+                                target_time = ex_entry.logged_at.time()
+                            ex_entry.logged_at = datetime.combine(target_date, target_time)
+                        except (ValueError, TypeError, IndexError):
+                            pass
+                    adjusted.append(ex_entry)
+                    continue
+
                 entry = db.session.get(FoodLogEntry, int(adj.get("id")))
                 if entry is None:
                     continue
@@ -1203,9 +1368,23 @@ def _run_food_agent(app, job):
             except (TypeError, ValueError):
                 continue
 
-        for del_id in deletions:
+        for del_item in deletions:
             try:
-                entry = db.session.get(FoodLogEntry, int(del_id))
+                if isinstance(del_item, dict):
+                    del_entity = del_item.get("entity")
+                    del_id = int(del_item.get("id"))
+                else:
+                    # Tolerate a bare id (older shape / model slip) as a food deletion
+                    del_entity, del_id = "food", int(del_item)
+
+                if del_entity == "exercise":
+                    ex_entry = db.session.get(ExerciseEntry, del_id)
+                    if ex_entry is not None:
+                        deleted_ids.append(del_id)
+                        db.session.delete(ex_entry)
+                    continue
+
+                entry = db.session.get(FoodLogEntry, del_id)
                 if entry is not None:
                     deleted_ids.append(entry.id)
                     db.session.delete(entry)
@@ -1213,7 +1392,7 @@ def _run_food_agent(app, job):
                 continue
 
         db.session.commit()
-        entries = [e.to_dict() for e in created]
+        entries = [e.to_dict() for e in created] + [e.to_dict() for e in created_exercise]
         adjusted_dicts = [e.to_dict() for e in adjusted]
 
     return {"reply": reply, "entries": entries, "adjusted": adjusted_dicts, "deleted": deleted_ids}, None
@@ -2166,6 +2345,32 @@ def register_routes(app):
         db.session.delete(entry)
         db.session.commit()
         return jsonify(success=True)
+
+    @app.route("/exercise/delete-day", methods=["POST"])
+    def exercise_delete_day():
+        """Clear every exercise entry on a given day in one action --
+        faster than deleting duplicates one at a time when several
+        stacked up on the same day.
+        """
+        payload = request.get_json(silent=True) or {}
+        raw_date = (payload.get("date") or "").strip()
+        try:
+            day = datetime.fromisoformat(raw_date).date()
+        except ValueError:
+            return jsonify(error="Invalid date"), 400
+
+        start = datetime.combine(day, datetime.min.time())
+        end = start + timedelta(days=1)
+        entries = db.session.execute(
+            db.select(ExerciseEntry).filter(
+                ExerciseEntry.logged_at >= start, ExerciseEntry.logged_at < end
+            )
+        ).scalars().all()
+        count = len(entries)
+        for e in entries:
+            db.session.delete(e)
+        db.session.commit()
+        return jsonify(deleted=count)
 
 
 app = create_app()

@@ -732,6 +732,25 @@
         postDelete("/exercise/" + btn.dataset.deleteExerciseId + "/delete");
       });
     });
+
+    document.querySelectorAll("[data-clear-day]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const day = btn.dataset.clearDay;
+        if (!window.confirm("Remove every exercise entry logged on " + day + "? This can't be undone.")) return;
+        fetch("/exercise/delete-day", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: day }),
+        })
+          .then(function (res) {
+            if (!res.ok) throw new Error("clear failed");
+            window.location.reload();
+          })
+          .catch(function () {
+            window.alert("Couldn't clear that day -- try again.");
+          });
+      });
+    });
   }
 
   function pollExerciseEstimate(jobId, statusEl, attempt) {
