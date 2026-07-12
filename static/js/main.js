@@ -747,21 +747,26 @@
     });
   }
 
-  function syncFlankHeights() {
-    const mysteryCard = document.getElementById("mystery-year-card");
+  function getFlankTargetHeight() {
     const patriotsCard = document.getElementById("patriots-news-card");
-    if (!mysteryCard || !patriotsCard) return;
-    // Only meaningful in the side-by-side layout -- in the stacked
-    // mobile layout (see the matching CSS breakpoint) each card should
-    // size to its own content instead.
-    if (window.innerWidth <= 1180) {
-      mysteryCard.style.maxHeight = "";
-      mysteryCard.classList.remove("hero-flank--capped");
+    if (!patriotsCard || window.innerWidth <= 1180) return null;
+    const height = patriotsCard.getBoundingClientRect().height;
+    return height > 0 ? height : null;
+  }
+
+  function syncFlankHeights() {
+    if (window.__fitMysteryYearNarrative) {
+      window.__fitMysteryYearNarrative();
       return;
     }
-    const targetHeight = patriotsCard.getBoundingClientRect().height;
-    if (targetHeight > 0) {
-      mysteryCard.style.maxHeight = targetHeight + "px";
+    const mysteryCard = document.getElementById("mystery-year-card");
+    if (!mysteryCard) return;
+    const target = getFlankTargetHeight();
+    if (target === null) {
+      mysteryCard.style.maxHeight = "";
+      mysteryCard.classList.remove("hero-flank--capped");
+    } else {
+      mysteryCard.style.maxHeight = target + "px";
       mysteryCard.classList.add("hero-flank--capped");
     }
   }
@@ -795,6 +800,53 @@
 
     let pool = null; // full list of {year, text, url} for today, fetched once
     let nextPick = null; // pre-selected the instant the previous one is shown
+    let fullNarrativeText = "";
+
+    function fitNarrativeToHeight() {
+      const mysteryCard = document.getElementById("mystery-year-card");
+      if (!mysteryCard) return;
+      const target = getFlankTargetHeight();
+
+      // No cap needed (stacked mobile layout, or Patriots hasn't
+      // rendered yet) -- show the full narrative uncapped.
+      if (target === null) {
+        mysteryCard.style.maxHeight = "";
+        mysteryCard.classList.remove("hero-flank--capped");
+        narrativeEl.textContent = fullNarrativeText;
+        narrativeEl.hidden = !fullNarrativeText;
+        return;
+      }
+
+      // Measure against the FULL text first, with no cap in place --
+      // scrollHeight reflects the true content height regardless of
+      // any overflow clipping.
+      mysteryCard.style.maxHeight = "";
+      mysteryCard.classList.remove("hero-flank--capped");
+      narrativeEl.textContent = fullNarrativeText;
+      narrativeEl.hidden = !fullNarrativeText;
+
+      if (!fullNarrativeText || mysteryCard.scrollHeight <= target) {
+        return; // fits as-is, nothing to trim
+      }
+
+      // Doesn't fit -- add it back sentence by sentence, stopping at
+      // the last one that still fits, so it always ends at a complete
+      // thought instead of an arbitrary mid-sentence cut.
+      const sentences = fullNarrativeText.match(/[^.!?]+[.!?]+(\s+|$)/g) || [fullNarrativeText];
+      let accumulated = "";
+      narrativeEl.textContent = "";
+      for (let i = 0; i < sentences.length; i++) {
+        narrativeEl.textContent = (accumulated + sentences[i]).trim();
+        if (mysteryCard.scrollHeight > target) break;
+        accumulated += sentences[i];
+      }
+      narrativeEl.textContent = accumulated.trim();
+      narrativeEl.hidden = !accumulated.trim();
+
+      mysteryCard.style.maxHeight = target + "px";
+      mysteryCard.classList.add("hero-flank--capped");
+    }
+    window.__fitMysteryYearNarrative = fitNarrativeToHeight;
     let fetching = false;
     const today = new Date().toISOString().slice(0, 10);
     const storageKey = "wt_mystery_shown_" + today;
@@ -840,8 +892,8 @@
           // currently on screen.
           if (requestId !== currentRequestId) return;
           if (data.narrative) {
-            narrativeEl.textContent = data.narrative;
-            narrativeEl.hidden = false;
+            fullNarrativeText = data.narrative;
+            fitNarrativeToHeight();
           } else if (attempt < 4) {
             setTimeout(function () { loadNarrative(year, requestId, attempt + 1); }, 2000);
           }
@@ -858,6 +910,7 @@
 
       yearEl.textContent = pick.year;
       textEl.textContent = pick.text;
+      fullNarrativeText = "";
       narrativeEl.hidden = true;
       narrativeEl.textContent = "";
       if (pick.url) {

@@ -1306,6 +1306,21 @@ on window resize, and only applies in the side-by-side desktop layout
 -- the stacked mobile view lets each card size to its own content
 instead, since there's nothing to align there.
 
+## Fixed the mid-sentence cutoff -- text now fits exactly, not masked
+
+The height cap itself was working correctly, but simply clipping
+whatever text happened to be there (even with the fade) meant it could
+cut off mid-sentence, mid-word, which reads as broken rather than
+intentional. Replaced with real fitting logic: the narrative is added
+back sentence by sentence, measuring the actual rendered height each
+time, stopping at the last sentence that still fits -- so it always
+ends on a complete thought. Verified the sentence-splitting and
+accumulation logic directly against the real 1913 narrative text and
+confirmed every possible cutoff point lands on real punctuation, never
+mid-word. Removed the fade-out mask entirely since there's no longer
+partially-hidden content to soften -- what's visible is the complete
+fitted text, not a clipped fragment.
+
 ## Running it locally
 
 ```bash
