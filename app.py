@@ -874,10 +874,7 @@ def _fetch_on_this_day(local_date):
         if year is None or year in seen_years:
             continue
         seen_years.add(year)
-        pages = e.get("pages") or []
-        page = pages[0] if pages else {}
-        link = page.get("content_urls", {}).get("desktop", {}).get("page")
-        results.append({"year": year, "text": e.get("text"), "url": link})
+        results.append({"year": year, "text": e.get("text")})
     return results
 
 

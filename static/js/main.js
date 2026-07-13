@@ -913,12 +913,12 @@
       fullNarrativeText = "";
       narrativeEl.hidden = true;
       narrativeEl.textContent = "";
-      if (pick.url) {
-        linkEl.href = pick.url;
-        linkEl.hidden = false;
-      } else {
-        linkEl.hidden = true;
-      }
+      // Link to the year's own Wikipedia page, not the on-this-day
+      // event's linked article -- that link is often a broad, tangential
+      // topic (a country, a person's whole biography) with no real
+      // connection to this specific day once you actually click through.
+      linkEl.href = "https://en.wikipedia.org/wiki/" + pick.year;
+      linkEl.hidden = false;
       reveal.hidden = false;
       button.textContent = "Reveal Another Year";
 

@@ -1321,6 +1321,36 @@ mid-word. Removed the fade-out mask entirely since there's no longer
 partially-hidden content to soften -- what's visible is the complete
 fitted text, not a clipped fragment.
 
+## "Read more" no longer leads somewhere unrelated to the day
+
+That was a real design flaw, not bad luck -- the link was pulling
+whatever Wikipedia's on-this-day API considered the "primary linked
+article" for an event, which is very often a broad, tangential topic
+(a country, a public figure's entire biography) with no real
+connection to that specific day once actually clicked through -- the
+Bashar al-Assad/Syria example was a direct instance of the same
+tangential-link problem found earlier with a different event. Fixed by
+linking to the year's own Wikipedia page instead (the same page the
+narrative content already comes from) -- always directly relevant to
+what's being shown, confirmed the link genuinely resolves. Simplified
+the backend to match: it no longer even fetches or carries a
+per-event link field that was never a good idea to expose in the UI.
+
+## Verified the day rollover for real, not just re-read the code
+
+Given tonight's track record, treated "make sure" as a real
+requirement to prove, not just re-confirm the logic looks right on
+paper. Actually simulated a day boundary end-to-end: warmed the cache
+for today, then called the real refresh-check function the exact way
+production calls it on a fresh visit, pretending it was tomorrow.
+Confirmed the cache's date marker updated and, more importantly, that
+the actual returned events were genuinely different content -- not
+just a date label change while quietly still serving today's events.
+Also checked the client-side "don't repeat a year" tracking
+specifically: it's keyed by the calendar date, so a new day gets a
+completely fresh, unused key automatically, with no stale exclusions
+carried over from the day before.
+
 ## Running it locally
 
 ```bash
