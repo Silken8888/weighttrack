@@ -1361,6 +1361,22 @@ carried over from the day before.
 - "Calorie Target" -> "Daily Calorie Target"
 - "Consumed" -> "Consumed Today", "Burned" -> "Burned Today"
 
+## Real bug: narrative was always pulling January, regardless of the actual date
+
+Confirmed and fixed. The narrative extraction was hardcoded to always
+search from "=== January" in the year page's Events section, no matter
+what date was actually being shown -- so revealing a year on July 13
+would show January content from that year, completely unrelated to the
+day actually highlighted. Fixed to search from the *current* month's
+own section instead, and go a step further: it now tries to anchor
+directly at the specific day within that month first (searched only
+within a bounded window right after the month section starts, so a
+coincidental date mention elsewhere in the article doesn't get picked
+up by mistake). Verified directly against the real 1913 example: the
+narrative now starts precisely at "July 13 -- The 1913 Romanian Army
+cholera outbreak..." instead of January's Balkan War content having
+nothing to do with the day shown.
+
 ## Running it locally
 
 ```bash

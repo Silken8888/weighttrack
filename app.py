@@ -878,21 +878,26 @@ def _fetch_on_this_day(local_date):
     return results
 
 
-def _fetch_event_narrative(year):
-    """Real event-by-event historical narrative for a given year, not
-    generic calendar trivia and not a tangential linked topic's blurb.
+def _fetch_event_narrative(year, month_name, day):
+    """Real event-by-event historical narrative for a given year, from
+    around the ACTUAL date being shown (not just wherever the year
+    happens to start) -- not generic calendar trivia and not a
+    tangential linked topic's blurb.
 
-    Tried two other approaches first and confirmed both were wrong
-    before landing here: the year page's summary is just calendar-
-    position boilerplate ("1913 was a common year starting on
-    Wednesday..."), and the specific on-this-day event's linked
-    Wikipedia article is often about a broader connected topic, not the
-    event itself (a "Siege of Vidin" event linked to "Kingdom of
-    Serbia" generally, for one real example). What actually works: the
-    year page's own "Events" section, which is a genuine month-by-month
-    list of what happened that year -- confirmed this returns real
-    story content (Stalin travelling to Vienna, the Balkan Wars, etc.
-    for 1913) before wiring it in.
+    Real bug caught here: this used to always search from "January"
+    regardless of what the actual highlighted date was, so revealing a
+    year on July 13 would show narrative content from January of that
+    year -- unrelated to the specific day being shown. Fixed to search
+    from the current month's own section instead ("=== July ==="),
+    confirmed directly this lands on genuinely relevant content --
+    for 1913 in July, it even includes a "July 13" entry specifically.
+
+    Tried two other approaches before landing here too: the year page's
+    summary is just calendar-position boilerplate ("1913 was a common
+    year starting on Wednesday..."), and the specific on-this-day
+    event's linked Wikipedia article is often about a broader connected
+    topic, not the event itself (a "Siege of Vidin" event linked to
+    "Kingdom of Serbia" generally, for one real example).
     """
     try:
         params = {
@@ -915,11 +920,20 @@ def _fetch_event_narrative(year):
         # no usable narrative there, fall back cleanly.
         return None
 
-    idx = extract.find("=== January")
-    if idx == -1:
-        idx = extract.find("Events")
-    if idx == -1:
-        idx = 0
+    month_idx = extract.find(f"=== {month_name}")
+    if month_idx == -1:
+        month_idx = extract.find("Events")
+    if month_idx == -1:
+        month_idx = 0
+
+    # Prefer anchoring right at the specific day within this month's
+    # section, if it's mentioned there -- most relevant. Bounded search
+    # window so a coincidental "{month} {day}" match somewhere else in
+    # the article (a citation, an unrelated mention) doesn't get picked
+    # up instead of this month's own section.
+    day_idx = extract.find(f"{month_name} {day} ", month_idx, month_idx + 4000)
+    idx = day_idx if day_idx != -1 else month_idx
+
     chunk = extract[idx:idx + 900]
     chunk = re.sub(r"={2,}\s*.*?\s*={2,}", " ", chunk)
     chunk = re.sub(r"\s*\n\s*", " ", chunk).strip()
@@ -932,18 +946,18 @@ def _fetch_event_narrative(year):
     return chunk or None
 
 
-def _refresh_event_narrative(year):
+def _refresh_event_narrative(year, month_name, day):
     """Runs in a background thread -- same hard rule as every other
     external call in this app, never inline in a request.
     """
     try:
-        text = _fetch_event_narrative(year)
+        text = _fetch_event_narrative(year, month_name, day)
         if text:
             with _year_narrative_lock:
-                _year_narrative_cache[year] = text
+                _year_narrative_cache[(year, month_name, day)] = text
     finally:
         with _year_narrative_lock:
-            _year_narrative_fetching.discard(year)
+            _year_narrative_fetching.discard((year, month_name, day))
 
 
 def _fetch_patriots_news():
@@ -2607,13 +2621,19 @@ def register_routes(app):
 
     @app.route("/dashboard/event-narrative/<int:year>")
     def dashboard_event_narrative(year):
+        local_date = _local_today()
+        month_name = local_date.strftime("%B")
+        day = local_date.day
+        cache_key = (year, month_name, day)
         with _year_narrative_lock:
-            cached = _year_narrative_cache.get(year)
-            should_start = cached is None and year not in _year_narrative_fetching
+            cached = _year_narrative_cache.get(cache_key)
+            should_start = cached is None and cache_key not in _year_narrative_fetching
             if should_start:
-                _year_narrative_fetching.add(year)
+                _year_narrative_fetching.add(cache_key)
         if should_start:
-            threading.Thread(target=_refresh_event_narrative, args=(year,), daemon=True).start()
+            threading.Thread(
+                target=_refresh_event_narrative, args=(year, month_name, day), daemon=True
+            ).start()
         return jsonify(narrative=cached)
 
     @app.route("/dashboard")
