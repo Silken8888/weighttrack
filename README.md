@@ -1351,6 +1351,16 @@ specifically: it's keyed by the calendar date, so a new day gets a
 completely fresh, unused key automatically, with no stale exclusions
 carried over from the day before.
 
+## Four small, direct changes
+
+- Recent Timeline's day groups now load collapsed by default -- each
+  day's header is a real button with a chevron indicator, click to
+  expand/collapse. Exercise History's day groups are a separate
+  component and were deliberately left untouched, matching the request.
+- "Mystery Year" renamed to "On This Day..."
+- "Calorie Target" -> "Daily Calorie Target"
+- "Consumed" -> "Consumed Today", "Burned" -> "Burned Today"
+
 ## Running it locally
 
 ```bash

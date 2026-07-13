@@ -35,7 +35,7 @@
     <div class="mobile-hero__row">
       <div class="hero-flank hero-flank--left extras-card" id="mystery-year-card">
         <div class="library-header library-header--center">
-          <h2>Mystery Year</h2>
+          <h2>On This Day&#8230;</h2>
         </div>
         <div class="mystery-year__body" id="mystery-year-body">
           <button type="button" class="btn mystery-year__button" id="mystery-year-button">Reveal A Year</button>
@@ -117,7 +117,7 @@
 
   <section class="stats-row">
     <div class="stat-card">
-      <p class="stat-card__label">Calorie Target</p>
+      <p class="stat-card__label">Daily Calorie Target</p>
       {% if calorie_target is not none %}
         <p class="stat-card__value">{{ calorie_target }} <span>Cal</span></p>
       {% else %}
@@ -125,11 +125,11 @@
       {% endif %}
     </div>
     <div class="stat-card">
-      <p class="stat-card__label">Consumed</p>
+      <p class="stat-card__label">Consumed Today</p>
       <p class="stat-card__value stat-card__value--coral">{{ consumed }} <span>Cal</span></p>
     </div>
     <div class="stat-card">
-      <p class="stat-card__label">Burned</p>
+      <p class="stat-card__label">Burned Today</p>
       <p class="stat-card__value stat-card__value--coral">{{ burned }} <span>Cal</span></p>
     </div>
     <div class="stat-card">
@@ -232,11 +232,12 @@
     {% if timeline_history %}
       {% for day in timeline_history %}
         <div class="timeline-day-group">
-          <p class="timeline-day-group__label">
+          <button type="button" class="timeline-day-group__label" data-toggle-day>
+            <span class="timeline-day-group__chevron" aria-hidden="true">&#9656;</span>
             {{ day.label }}
             <span>{{ day.total }} Cal Total</span>
-          </p>
-          <ol class="timeline">
+          </button>
+          <ol class="timeline" hidden>
             {% for entry in day.entries %}
               <li class="timeline__item timeline__item--{{ entry.meal_type }}" data-log-id="{{ entry.id }}">
                 <span class="timeline__dot"></span>

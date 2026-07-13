@@ -780,6 +780,19 @@
     );
   }
 
+  function initTimelineToggle() {
+    document.querySelectorAll("[data-toggle-day]").forEach(function (btn) {
+      const list = btn.nextElementSibling;
+      if (!list) return;
+      btn.setAttribute("aria-expanded", "false");
+      btn.addEventListener("click", function () {
+        const isOpen = !list.hidden;
+        list.hidden = isOpen;
+        btn.setAttribute("aria-expanded", isOpen ? "false" : "true");
+      });
+    });
+  }
+
   function initPopupLinks() {
     document.addEventListener("click", function (evt) {
       const link = evt.target.closest("[data-popup-link]");
@@ -1697,6 +1710,7 @@
     initWeighInPage();
     initVacationPage();
     initDashboardPage();
+    initTimelineToggle();
     initPopupLinks();
     let resizeTimer = null;
     window.addEventListener("resize", function () {

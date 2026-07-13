@@ -1503,16 +1503,38 @@ a.extras-list__text:hover {
   letter-spacing: 0.01em;
   color: var(--text);
   margin: 0 0 14px;
-  padding-bottom: 10px;
+  padding: 0 0 10px;
+  border: none;
   border-bottom: 2px solid var(--surface-2);
+  background: none;
+  width: 100%;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.timeline-day-group__label:hover {
+  color: var(--teal);
+}
+
+.timeline-day-group__chevron {
+  font-size: 11px;
+  color: var(--text-faint);
+  transition: transform 0.15s ease;
+  margin-right: 2px;
+}
+
+.timeline-day-group__label[aria-expanded="true"] .timeline-day-group__chevron {
+  transform: rotate(90deg);
 }
 
 .timeline-day-group__label span {
   font-family: var(--font-body);
   font-weight: 600;
+  margin-left: auto;
   font-size: 11px;
   color: var(--text-faint);
   text-transform: none;
