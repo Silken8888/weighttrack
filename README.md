@@ -1402,6 +1402,32 @@ had. Confirmed Wikipedia year pages have real, working section anchors
 (`#July`) before relying on one, then added it to the link so clicking
 through lands in the same section the narrative text itself came from.
 
+## Weigh-ins: a real capability gap fixed, and an honest look at the date bug
+
+**The assistant genuinely couldn't help, and that's fixed now.** It
+had zero visibility into weigh-ins at all, and no ability to adjust or
+delete one -- checked the code and confirmed the "entity" type only
+ever supported "food" and "exercise". Added "weigh_in" as a real third
+option throughout: the assistant can now see recent weigh-ins, correct
+a wrong date/time on one (same pattern already used for food and
+exercise), correct the weight value itself, or delete one outright.
+Tested the exact scenario end-to-end: a weigh-in mis-dated to
+yesterday, asked the assistant to move it to today, confirmed it
+actually did.
+
+**On the original mis-dating itself** -- tried directly to reproduce
+it before touching anything, since guessing at a fix without evidence
+has gone wrong before tonight. Logged a fresh weigh-in with a blank
+date field (the normal way, not backdating) and it correctly landed on
+today's actual date, both in the entries list and immediately in the
+splash screen. Couldn't get it to reproduce the bug from what I can
+test here, so I don't want to claim a fix for a cause I haven't
+actually found. If it happens again, the assistant can now correct it
+directly right in the moment either way -- and if you can tell me
+whether the date field was touched/pre-filled with something when it
+happened, or what time of day you logged it, that would help track
+down the actual root cause if there is one.
+
 ## Running it locally
 
 ```bash

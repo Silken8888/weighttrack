@@ -616,6 +616,16 @@ def _gather_app_context(app, tz=None):
             for e in recent_exercise
         ) or "(nothing logged yet)"
 
+        recent_weigh_ins = db.session.execute(
+            db.select(WeighIn).order_by(WeighIn.logged_at.desc()).limit(15)
+        ).scalars().all()
+        recent_weigh_ins_context = "\n".join(
+            f'id={w.id}: {w.weight_lbs} lbs, logged '
+            f'{w.logged_at.strftime("%Y-%m-%d %H:%M")}'
+            + (f', note: "{w.notes}"' if w.notes else "")
+            for w in recent_weigh_ins
+        ) or "(nothing logged yet)"
+
         local_start, local_end = _local_day_bounds_utc(_local_today(tz), tz)
         today_entries = db.session.execute(
             db.select(FoodLogEntry).filter(
@@ -662,6 +672,7 @@ def _gather_app_context(app, tz=None):
         "profile_context": profile_context,
         "recent_food_context": recent_food_context,
         "recent_exercise_context": recent_exercise_context,
+        "recent_weigh_ins_context": recent_weigh_ins_context,
     }
 
 
@@ -1353,6 +1364,7 @@ def _run_food_agent(app, job):
     ctx = _gather_app_context(app, tz)
     recent_context = ctx["recent_food_context"]
     exercise_context = ctx["recent_exercise_context"]
+    weigh_in_context = ctx["recent_weigh_ins_context"]
     profile_context = ctx["profile_context"]
     latest_weight = ctx["latest_weight"]
 
@@ -1374,16 +1386,19 @@ def _run_food_agent(app, job):
         "You are the assistant inside WeighTrack, a personal "
         "nutrition tracker. You can: (1) log new food/drink the user "
         "describes, (2) log new exercise they describe (e.g. \"I "
-        "walked a mile\"), (3) adjust an entry already logged (food or "
-        "exercise) if they're correcting or changing something -- "
-        "nutrition/calories burned (e.g. \"actually the toast was 3 "
-        "slices\", \"that walk was more like 300 calories\") or WHEN "
-        "it was logged (e.g. \"that was actually at 7am\", \"change "
-        "the time to 6:15pm yesterday for my exercise\") -- adjusting "
-        "the logged time/date is fully supported for BOTH food and "
-        "exercise entries, don't say you can't do it or that you don't "
-        "see an entry without checking the exercise list below first, "
-        "(4) delete an entry (food or exercise) they ask to remove, "
+        "walked a mile\"), (3) adjust an entry already logged (food, "
+        "exercise, OR a weigh-in) if they're correcting or changing "
+        "something -- nutrition/calories burned/weight value (e.g. "
+        "\"actually the toast was 3 slices\", \"that walk was more "
+        "like 300 calories\", \"my weigh-in should say 349.2 not "
+        "349.6\") or WHEN it was logged (e.g. \"that was actually at "
+        "7am\", \"change the time to 6:15pm yesterday for my "
+        "exercise\", \"that weigh-in was actually today not "
+        "yesterday\") -- adjusting the logged time/date is fully "
+        "supported for food, exercise, AND weigh-ins, don't say you "
+        "can't do it or that you don't see an entry without checking "
+        "the lists below first, (4) delete an entry (food, exercise, "
+        "or weigh-in) they ask to remove, "
         "(5) remove a specific photo attached to a food entry -- "
         "photos ARE supported (each entry below shows its attached "
         "photo ids if it has any) -- don't say photos aren't stored, "
@@ -1406,6 +1421,10 @@ def _run_food_agent(app, job):
         f"Recently logged EXERCISE entries, same idea -- check this "
         f"list before saying you don't see an exercise entry:\n"
         f"{exercise_context}\n\n"
+        f"Recently logged WEIGH-INS, same idea -- check this list "
+        f"before saying you don't see a weigh-in entry (use entity "
+        f"\"weigh_in\" for adjustments/deletions to one of these):\n"
+        f"{weigh_in_context}\n\n"
         "Break new food into distinct items the same way you always "
         "do (e.g. toast and peanut butter are separate items, since "
         "they have very different nutrition profiles). For each new "
@@ -1502,12 +1521,13 @@ def _run_food_agent(app, job):
                     "items": {
                         "type": "object",
                         "properties": {
-                            "entity": {"type": "string", "enum": ["food", "exercise"]},
+                            "entity": {"type": "string", "enum": ["food", "exercise", "weigh_in"]},
                             "id": {"type": "integer"},
                             "calories": nullable_number,
                             "protein_g": nullable_number,
                             "carbs_g": nullable_number,
                             "fat_g": nullable_number,
+                            "weight_lbs": {"type": ["number", "null"], "description": "Corrected weight in lbs, for a weigh_in entity only, or null if unchanged."},
                             "description": {"type": ["string", "null"], "description": "New name/description (food) or new activity text (exercise), or null if unchanged."},
                             "date": {"type": ["string", "null"], "description": "ISO date YYYY-MM-DD or null if unchanged"},
                             "time": {"type": ["string", "null"], "description": "HH:MM 24-hour or null if unchanged"},
@@ -1521,7 +1541,7 @@ def _run_food_agent(app, job):
                     "items": {
                         "type": "object",
                         "properties": {
-                            "entity": {"type": "string", "enum": ["food", "exercise"]},
+                            "entity": {"type": "string", "enum": ["food", "exercise", "weigh_in"]},
                             "id": {"type": "integer"},
                         },
                         "required": ["entity", "id"],
@@ -1654,6 +1674,35 @@ def _run_food_agent(app, job):
         for adj in adjustments:
             try:
                 entity = adj.get("entity")
+                if entity == "weigh_in":
+                    w_entry = db.session.get(WeighIn, int(adj.get("id")))
+                    if w_entry is None:
+                        continue
+                    if adj.get("weight_lbs") is not None:
+                        w_entry.weight_lbs = _num(adj, "weight_lbs")
+                    if adj.get("description"):
+                        w_entry.notes = str(adj["description"]).strip()[:500]
+
+                    new_date_str = adj.get("date")
+                    new_time_str = adj.get("time")
+                    if new_date_str or new_time_str:
+                        try:
+                            existing_local = _to_local_datetime(w_entry.logged_at, tz)
+                            target_date = (
+                                datetime.fromisoformat(new_date_str).date()
+                                if new_date_str else existing_local.date()
+                            )
+                            if new_time_str:
+                                hour, minute = (int(p) for p in new_time_str.split(":")[:2])
+                                target_time = existing_local.time().replace(hour=hour, minute=minute)
+                            else:
+                                target_time = existing_local.time()
+                            w_entry.logged_at = _local_to_utc_naive(target_date, target_time, tz)
+                        except (ValueError, TypeError, IndexError):
+                            pass
+                    adjusted.append(w_entry)
+                    continue
+
                 if entity == "exercise":
                     ex_entry = db.session.get(ExerciseEntry, int(adj.get("id")))
                     if ex_entry is None:
@@ -1730,6 +1779,13 @@ def _run_food_agent(app, job):
                 else:
                     # Tolerate a bare id (older shape / model slip) as a food deletion
                     del_entity, del_id = "food", int(del_item)
+
+                if del_entity == "weigh_in":
+                    w_entry = db.session.get(WeighIn, del_id)
+                    if w_entry is not None:
+                        deleted_ids.append(del_id)
+                        db.session.delete(w_entry)
+                    continue
 
                 if del_entity == "exercise":
                     ex_entry = db.session.get(ExerciseEntry, del_id)
