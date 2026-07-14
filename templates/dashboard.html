@@ -232,11 +232,16 @@
     {% if timeline_history %}
       {% for day in timeline_history %}
         <div class="timeline-day-group">
-          <button type="button" class="timeline-day-group__label" data-toggle-day>
-            <span class="timeline-day-group__chevron" aria-hidden="true">&#9656;</span>
-            {{ day.label }}
-            <span>{{ day.total }} Cal Total</span>
-          </button>
+          <div class="timeline-day-group__row">
+            <button type="button" class="timeline-day-group__label" data-toggle-day>
+              <span class="timeline-day-group__chevron" aria-hidden="true">&#9656;</span>
+              {{ day.label }}
+              <span>{{ day.total }} Cal Total</span>
+            </button>
+            <button type="button" class="timeline-day-group__repeat" data-repeat-day="{{ day.date.isoformat() }}" title="Repeat this day's food, logged today">
+              &#8635; Repeat Day
+            </button>
+          </div>
           <ol class="timeline" hidden>
             {% for entry in day.entries %}
               <li class="timeline__item timeline__item--{{ entry.meal_type }}" data-log-id="{{ entry.id }}">

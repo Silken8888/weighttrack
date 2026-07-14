@@ -2241,6 +2241,57 @@ def register_routes(app):
 
         return jsonify(entries=[e.to_dict() for e in created]), 201
 
+    @app.route("/log/repeat-day", methods=["POST"])
+    def log_repeat_day():
+        """Clone every food entry from a given day as new entries logged
+        today -- each keeps its original time-of-day (just remapped onto
+        today's date) rather than bunching everything at the same
+        instant, so breakfast still lands in the morning and dinner
+        still lands in the evening.
+        """
+        payload = request.get_json(silent=True) or {}
+        raw_date = (payload.get("date") or "").strip()
+        try:
+            source_date = datetime.fromisoformat(raw_date).date()
+        except (ValueError, TypeError):
+            return jsonify(error="Invalid date"), 400
+
+        tz = _user_timezone()
+        start, end = _local_day_bounds_utc(source_date, tz)
+        source_items = db.session.execute(
+            db.select(FoodLogEntry)
+            .filter(FoodLogEntry.logged_at >= start, FoodLogEntry.logged_at < end)
+            .order_by(FoodLogEntry.logged_at)
+        ).scalars().all()
+        if not source_items:
+            return jsonify(error="Nothing logged that day to repeat"), 404
+
+        today_local = _local_today(tz)
+        new_batch_id = uuid.uuid4().hex
+        created = []
+        for src in source_items:
+            src_local_time = _to_local_datetime(src.logged_at, tz).time()
+            new_logged_at = _local_to_utc_naive(today_local, src_local_time, tz)
+            entry = FoodLogEntry(
+                food_item_id=None,
+                description=src.description,
+                meal_type=src.meal_type,
+                servings=1.0,
+                logged_at=new_logged_at,
+                ai_calories=src.ai_calories,
+                ai_protein_g=src.ai_protein_g,
+                ai_carbs_g=src.ai_carbs_g,
+                ai_fat_g=src.ai_fat_g,
+                batch_id=new_batch_id,
+            )
+            db.session.add(entry)
+            db.session.flush()
+            _auto_attach_remembered_photos(entry)
+            created.append(entry)
+        db.session.commit()
+
+        return jsonify(entries=[e.to_dict() for e in created]), 201
+
     @app.route("/log/photo", methods=["POST"])
     def log_photo_start():
         """Snap a photo of a meal -- unlike /food/search-photo, this

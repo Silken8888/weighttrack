@@ -782,13 +782,47 @@
 
   function initTimelineToggle() {
     document.querySelectorAll("[data-toggle-day]").forEach(function (btn) {
-      const list = btn.nextElementSibling;
+      const list = btn.closest(".timeline-day-group__row").nextElementSibling;
       if (!list) return;
       btn.setAttribute("aria-expanded", "false");
       btn.addEventListener("click", function () {
         const isOpen = !list.hidden;
         list.hidden = isOpen;
         btn.setAttribute("aria-expanded", isOpen ? "false" : "true");
+      });
+    });
+  }
+
+  function initRepeatDay() {
+    document.querySelectorAll("[data-repeat-day]").forEach(function (btn) {
+      btn.addEventListener("click", function (evt) {
+        evt.stopPropagation(); // don't also trigger the day toggle
+        const date = btn.dataset.repeatDay;
+        if (!window.confirm("Log everything from " + date + " again, with today's date and each item's original time of day?")) {
+          return;
+        }
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Repeating\u2026";
+        fetch("/log/repeat-day", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: date }),
+        })
+          .then(function (res) {
+            return res.json().then(function (body) {
+              if (!res.ok) throw new Error(body.error || "Couldn't repeat that day.");
+              return body;
+            });
+          })
+          .then(function () {
+            window.location.reload();
+          })
+          .catch(function (err) {
+            window.alert(err.message);
+            btn.disabled = false;
+            btn.textContent = original;
+          });
       });
     });
   }
@@ -926,11 +960,12 @@
       fullNarrativeText = "";
       narrativeEl.hidden = true;
       narrativeEl.textContent = "";
-      // Link to the year's own Wikipedia page, not the on-this-day
-      // event's linked article -- that link is often a broad, tangential
-      // topic (a country, a person's whole biography) with no real
-      // connection to this specific day once you actually click through.
-      linkEl.href = "https://en.wikipedia.org/wiki/" + pick.year;
+      // Link to the year's own Wikipedia page, anchored to the current
+      // month's section -- not just the year's own page unqualified,
+      // since that lands on the boilerplate calendar-position intro at
+      // the top rather than anywhere near the actual date being shown.
+      var currentMonthName = new Date().toLocaleDateString("en-US", { month: "long" });
+      linkEl.href = "https://en.wikipedia.org/wiki/" + pick.year + "#" + currentMonthName;
       linkEl.hidden = false;
       reveal.hidden = false;
       button.textContent = "Reveal Another Year";
@@ -1711,6 +1746,7 @@
     initVacationPage();
     initDashboardPage();
     initTimelineToggle();
+    initRepeatDay();
     initPopupLinks();
     let resizeTimer = null;
     window.addEventListener("resize", function () {

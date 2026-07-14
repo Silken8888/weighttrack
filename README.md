@@ -1377,6 +1377,31 @@ narrative now starts precisely at "July 13 -- The 1913 Romanian Army
 cholera outbreak..." instead of January's Balkan War content having
 nothing to do with the day shown.
 
+## Repeat a whole day's food, and the actual remaining Wikipedia bug
+
+**Repeat Day**: each day in Recent Timeline now has a "Repeat Day"
+button, cloning every entry from that day as new entries logged today
+-- confirmed each one keeps its original time-of-day (breakfast still
+lands in the morning, dinner still in the evening) rather than bunching
+everything at the same instant. Caught a real bug of my own while
+testing this -- my first test looked like the remapping wasn't working
+at all, entries came back with identical timestamps to the source. The
+remapping logic itself turned out to be correct when isolated and
+tested directly; the test data I'd constructed wasn't actually
+"yesterday" in Pacific local terms due to sloppy hour arithmetic.
+Rebuilt the test using the app's own local-date helpers and confirmed
+it for real: entries correctly moved from Jul 12 to Jul 13, each at its
+original hour.
+
+**The Wikipedia bug had one piece still open**: the narrative text
+itself was fixed to anchor on the correct month/day, but the "Read
+more" link still just pointed at the year page with no section anchor
+-- so clicking through landed on the January-ish boilerplate intro at
+the top regardless, undoing the date-relevance the visible text already
+had. Confirmed Wikipedia year pages have real, working section anchors
+(`#July`) before relying on one, then added it to the link so clicking
+through lands in the same section the narrative text itself came from.
+
 ## Running it locally
 
 ```bash
