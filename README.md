@@ -1484,6 +1484,39 @@ entries the difference is small next to the size of the bug being
 fixed, but it's not perfectly precise for older entries if your weight
 has changed meaningfully since then.
 
+## The actual root cause of the recurring date bugs, finally found
+
+Proved this mechanically before touching anything, the same way as the
+CSS specificity bug earlier: a helper function meant to stamp "right
+now" for a new weigh-in was computing the correct local wall-clock
+time, then stripping its timezone marker off -- but every other
+`logged_at` value in this app is genuine UTC. That mislabeled value
+later got run through the normal UTC-to-local conversion for display,
+which shifted it *again* -- a double shift, worth a fixed 14 hours in
+the wrong direction for Pacific time specifically. Depending on the
+hour it was logged, that either landed on the wrong *time* within the
+same day (unnoticeable) or pushed the date back a full calendar day --
+which is exactly why this looked intermittent and why an earlier test
+of mine didn't catch it: whether it manifests as a wrong date depends
+on what hour of day it happened, and logging first thing in the
+morning is precisely the condition that triggers the full day shift.
+
+Confirmed the fix directly against the exact scenario: simulated
+logging a weigh-in at 6:15 AM Pacific, and it now correctly lands on
+the actual current date instead of the day before. Also confirmed the
+chart's duplicate-label symptom is gone under the same scenario.
+
+Only one place in the whole app used this broken function, so this was
+narrowly scoped -- but it's a real possibility that a weigh-in logged
+in the morning at some earlier point in this session picked up a wrong
+date the same way. If you spot one, the assistant can now fix a
+weigh-in's date directly (from a few messages ago) -- didn't attempt an
+automatic bulk correction for old entries here, since reversing a
+timezone shift on historical data reliably is a meaningfully different
+(and riskier) problem than the straightforward recalculation used for
+the exercise-calorie fix, and I'd rather not guess at correcting data
+I can't verify.
+
 ## Running it locally
 
 ```bash

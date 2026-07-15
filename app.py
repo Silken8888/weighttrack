@@ -575,15 +575,6 @@ def _local_today(tz=None):
     return datetime.now(tz or _user_timezone()).date()
 
 
-def _local_now_naive(tz=None):
-    """'Right now', but as a naive datetime in the user's local time --
-    used when stamping a new entry as happening right now, so it reads
-    correctly against other local-date comparisons throughout the app
-    (which all now work in local time, not UTC).
-    """
-    return datetime.now(tz or _user_timezone()).replace(tzinfo=None)
-
-
 def _to_local_date(naive_utc_dt, tz=None):
     """Converts a stored datetime (naive, but representing UTC -- how
     logged_at is stored everywhere in this app) into the user's local
@@ -2743,7 +2734,7 @@ def register_routes(app):
         # entry automatically recalibrates "day one" without any extra
         # logic.
         raw_date = (payload.get("date") or "").strip()
-        logged_at = _local_now_naive()
+        logged_at = datetime.utcnow()
         if raw_date:
             try:
                 entry_date = datetime.fromisoformat(raw_date).date()
