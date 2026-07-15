@@ -1428,6 +1428,37 @@ whether the date field was touched/pre-filled with something when it
 happened, or what time of day you logged it, that would help track
 down the actual root cause if there is one.
 
+## Fixed real inconsistency in exercise calorie estimates
+
+Confirmed the actual problem before writing any code: reverse-engineered
+the implied MET*duration from four real logged walks and found values
+ranging from 0.87 to 1.15 for what should be near-identical casual
+walks -- meaning a *shorter* walk could log *more* calories than a
+longer one, exactly what was reported. The arithmetic itself was never
+wrong; the issue was asking Claude to independently guess a duration
+every single time with no pace stated, and those guesses weren't
+consistent between calls.
+
+Fixed by removing the guesswork for the common case: when a distance is
+explicitly stated ("1.15 miles"), calories are now computed
+deterministically from a fixed standard pace (20 min/mile, 3.5 MET) --
+the same distance always produces the same result now, regardless of
+which AI call or entry point logged it. Applied to both the dedicated
+Log Exercise form and the assistant's chat-based logging, so neither
+path can drift out of sync with the other. Non-distance activities (a
+bike ride, a gym session) are unaffected and still use Claude's
+estimate, confirmed directly.
+
+Caught two real bugs of my own while building and testing this against
+the exact activity text from the report, not made-up examples: the
+keyword gate I'd written ("walk"/"run"/"jog"/"hike") excluded real
+phrasing like "1.15 Miles Tonight, Log It", which never says the word
+"walk" -- removed the gate entirely, since a stated distance is signal
+enough on its own. Then the distance regex itself parsed ".9 miles" as
+literally "9 miles" (no leading zero before the decimal point), a 9x
+error -- fixed and reconfirmed against all four real strings from the
+report, which now come back proportional to distance as they should.
+
 ## Running it locally
 
 ```bash

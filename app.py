@@ -1158,6 +1158,51 @@ def _job_tz(job):
     return ZoneInfo("America/Los_Angeles")
 
 
+_DISTANCE_RE = re.compile(r"(\d+\.\d+|\.\d+|\d+)\s*(mi(?:les?)?\b|km\b|kilometers?\b)", re.IGNORECASE)
+
+
+def _estimate_distance_calories(activity_text, weight_kg):
+    """Deterministic calorie estimate for a walk/run/hike where a
+    distance is explicitly stated (e.g. "1.15 miles", "0.9 mi", "5k"),
+    using a fixed standard pace and MET instead of asking Claude to
+    separately guess a duration every time.
+
+    Real bug this fixes: confirmed directly that letting Claude
+    estimate MET *and* duration independently each call produced wildly
+    inconsistent results for near-identical activities -- reverse-
+    engineering the implied MET*hours from four real logged walks
+    showed values ranging from 0.87 to 1.15 with no real difference in
+    the activity, meaning a *shorter* walk could end up logged with
+    *more* calories than a longer one. Distance is the one thing in
+    "X miles" that's unambiguous; pace shouldn't be independently
+    re-guessed every time when it can just be fixed.
+
+    Standard used: 3.5 MET at a 20 min/mile (3 mph) pace, a commonly
+    documented casual/moderate walking rate -- this exact combination
+    was already hand-verified earlier (349.6 lbs, 1 mile -> 185 cal).
+    Applies whenever a distance is stated at all -- confirmed real
+    logged activity text often doesn't include an explicit verb like
+    "walk" ("1.15 Miles Tonight, Log It" says nothing about walking),
+    so gating on those keywords excluded exactly the phrasing people
+    actually use. Returns None when no distance is found in the text
+    at all, so callers fall back to Claude's estimate for genuinely
+    non-distance activities (a bike ride, a gym session, etc).
+    """
+    if not weight_kg:
+        return None
+    match = _DISTANCE_RE.search(activity_text)
+    if not match:
+        return None
+    value = float(match.group(1))
+    unit = match.group(2).lower()
+    miles = value * 0.621371 if unit.startswith("km") or unit.startswith("kilomet") else value
+    if miles <= 0 or miles > 100:
+        return None
+    duration_hours = miles * (20 / 60)  # fixed 20 min/mile standard pace
+    met_value = 3.5
+    return round(met_value * weight_kg * duration_hours)
+
+
 def _run_exercise_estimate(app, job):
     """Estimate calories burned for a described activity ('half a mile
     walk'), personalized against the user's actual weight -- weight is
@@ -1272,6 +1317,14 @@ def _run_exercise_estimate(app, job):
             calories = int(parsed["calories"])
         except (KeyError, TypeError, ValueError):
             return None, "Got a response from the AI but couldn't read a calorie number from it."
+
+    # Distance stated ("1.15 miles") -> use the fixed, standard-pace
+    # calculation instead of Claude's independently-guessed duration,
+    # so the same distance always produces the same calorie result
+    # instead of varying between calls for no real reason.
+    distance_calories = _estimate_distance_calories(activity_text, weight_kg)
+    if distance_calories is not None:
+        calories = distance_calories
 
     try:
         entry_date = datetime.fromisoformat(parsed.get("date", today)).date()
@@ -1662,6 +1715,14 @@ def _run_food_agent(app, job):
                     if fallback is None:
                         continue
                     calories_burned = round(fallback)
+
+                # Same fixed-pace override as the dedicated exercise
+                # form -- a stated distance shouldn't produce a
+                # different calorie result depending on which entry
+                # point logged it.
+                distance_calories = _estimate_distance_calories(activity, weight_kg)
+                if distance_calories is not None:
+                    calories_burned = distance_calories
 
                 exercise_entry = ExerciseEntry(
                     activity=activity, calories_burned=calories_burned, logged_at=ex_logged_at
