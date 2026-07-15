@@ -106,6 +106,45 @@ def _ensure_schema_up_to_date(app):
             print(f"INFO: schema sync -- added missing column {table_name}.{column.name}")
 
 
+def _recalculate_distance_exercise_entries(app):
+    """One-time-per-deploy fix for exercise entries logged before the
+    distance-based calorie fix existed -- confirmed directly that four
+    real entries ("1.15 Miles Tonight, Log It" at 138 cal, ".9 Miles
+    Today Log It" at 150 cal, two "I Walked 1 Mile Yesterday" at 183
+    cal each) were wildly inconsistent per-mile, because each was
+    computed from Claude's independently-guessed duration rather than
+    the fixed standard pace used now.
+
+    Can't reach into the live database directly, so this runs
+    automatically on every app startup instead -- no action needed.
+    Recomputes every ExerciseEntry whose activity text has a stated
+    distance, using the *current* logged weight for all of them (the
+    app has no historical weight-at-that-moment to look up, and the
+    difference from a few days' fluctuation is small next to the size
+    of the inconsistency being fixed). Safe to run repeatedly: it's a
+    pure function of the stored activity text and current weight, so
+    re-running it after the first successful pass just recomputes the
+    same already-correct numbers.
+    """
+    with app.app_context():
+        latest = db.session.execute(
+            db.select(WeighIn).order_by(WeighIn.logged_at.desc()).limit(1)
+        ).scalars().all()
+        if not latest:
+            return
+        weight_kg = latest[0].weight_lbs * 0.453592
+
+        entries = db.session.execute(db.select(ExerciseEntry)).scalars().all()
+        changed = 0
+        for entry in entries:
+            new_calories = _estimate_distance_calories(entry.activity, weight_kg)
+            if new_calories is not None and new_calories != entry.calories_burned:
+                entry.calories_burned = new_calories
+                changed += 1
+        if changed:
+            db.session.commit()
+
+
 def create_app(config_name=None):
     config_name = config_name or os.environ.get("FLASK_ENV", "development")
     app = Flask(__name__)
@@ -115,6 +154,7 @@ def create_app(config_name=None):
     with app.app_context():
         db.create_all()
         _ensure_schema_up_to_date(app)
+        _recalculate_distance_exercise_entries(app)
 
     register_routes(app)
     start_search_worker(app)

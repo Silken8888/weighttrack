@@ -1459,6 +1459,31 @@ literally "9 miles" (no leading zero before the decimal point), a 9x
 error -- fixed and reconfirmed against all four real strings from the
 report, which now come back proportional to distance as they should.
 
+## Old exercise entries fixed automatically, no action needed
+
+Built an automatic startup migration since there's no way to reach
+directly into the live database -- runs the moment the app restarts on
+deploy, same pattern already used for schema migrations. Scans every
+exercise entry, recalculates any with a stated distance using the
+corrected fixed-pace formula, and overwrites the old inconsistent
+value.
+
+Tested this as close to the real scenario as possible: seeded a fresh
+database with the exact four entries and exact wrong calorie values
+from the report (138, 150, 183, 183), then actually restarted the app
+the same way a real deploy would and confirmed they came back
+recalculated to 213, 167, 185, and 185 -- consistent per-mile at last.
+Also confirmed it's safe to run on every future deploy: ran the startup
+sequence a second time on top of the now-corrected data and the values
+stayed exactly the same, no drift.
+
+One honest limitation: this uses your *current* logged weight for
+every recalculation, since the app has no record of what your weight
+was at the exact moment of each old entry. For a few days' worth of
+entries the difference is small next to the size of the bug being
+fixed, but it's not perfectly precise for older entries if your weight
+has changed meaningfully since then.
+
 ## Running it locally
 
 ```bash
