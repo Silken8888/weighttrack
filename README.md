@@ -1517,6 +1517,21 @@ timezone shift on historical data reliably is a meaningfully different
 the exercise-calorie fix, and I'd rather not guess at correcting data
 I can't verify.
 
+## Chart's last label was getting clipped -- fixed with minimal risk
+
+Checked `responsive`/`maintainAspectRatio` first -- both were already
+correctly set, so this wasn't the container-scaling issue it looked
+like. The actual cause: no right-side padding was ever reserved in the
+chart's layout, so the last tick label ("Jul 18") sat right at the
+canvas's own edge and got clipped by the canvas boundary itself, not
+by any surrounding CSS.
+
+Fixed with a single additive option (`layout.padding.right`) reserving
+room for the last label -- nothing else in the chart configuration was
+touched, precisely because it was already correct. Verified the exact
+rendered inline script is still syntactically valid, and ran the app's
+full regression suite to confirm nothing else was affected.
+
 ## Running it locally
 
 ```bash
