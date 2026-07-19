@@ -38,11 +38,18 @@ class Config:
     ALLOWED_PHOTO_MIMETYPES = {"image/jpeg", "image/png", "image/webp"}
 
     # Meal photo logging: Bunny.net for storage, Claude for the calorie
-    # estimate. All three BUNNY_* values and ANTHROPIC_API_KEY come from
+    # estimate. All BUNNY_* values and ANTHROPIC_API_KEY come from
     # environment variables -- if any are unset, the relevant feature
     # fails with a clear message rather than a crash (see _upload_to_bunny
     # and _estimate_meal_calories).
-    BUNNY_STORAGE_HOST = "storage.bunnycdn.com"
+    #
+    # BUNNY_STORAGE_HOST matters more than it looks: Bunny's storage API
+    # is region-specific -- a zone created outside the default region
+    # (e.g. Los Angeles) needs its own regional subdomain
+    # (la.storage.bunnycdn.com), or every request 401s even with a
+    # correct zone name and API key. Find the right value on the zone's
+    # "FTP & API Access" page under "Storage Zone Region Endpoint".
+    BUNNY_STORAGE_HOST = os.environ.get("BUNNY_STORAGE_HOST", "storage.bunnycdn.com")
     BUNNY_STORAGE_ZONE = os.environ.get("BUNNY_STORAGE_ZONE")
     BUNNY_STORAGE_API_KEY = os.environ.get("BUNNY_STORAGE_API_KEY")
     BUNNY_PULL_ZONE_HOST = os.environ.get("BUNNY_PULL_ZONE_HOST")

@@ -1532,6 +1532,21 @@ touched, precisely because it was already correct. Verified the exact
 rendered inline script is still syntactically valid, and ran the app's
 full regression suite to confirm nothing else was affected.
 
+## Bunny.net storage host made configurable
+
+Real bug caught during setup, not a hypothetical: the storage upload
+URL was hardcoded to the generic `storage.bunnycdn.com` endpoint, but
+Bunny's storage API is region-specific -- a zone created outside the
+default region (this one is Los Angeles) needs its own regional
+subdomain (`la.storage.bunnycdn.com`), or every upload 401s even with
+a correct zone name and API key. Confirmed this against Bunny's own
+docs and a real first-hand account of the exact same failure before
+touching anything. Made `BUNNY_STORAGE_HOST` a proper environment
+variable with the generic host as a safe default, so it's fully
+backward compatible for anyone whose zone happens to be in the default
+region. Tested both paths directly: unset, it still resolves to the
+generic host; set to `la.storage.bunnycdn.com`, it correctly overrides.
+
 ## Running it locally
 
 ```bash
